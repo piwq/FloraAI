@@ -1,41 +1,27 @@
-import os
 import aiohttp
+import os
 
-API_BASE_URL = os.getenv('API_BASE_URL', 'http://backend:8000/api')
+BASE_URL = os.getenv('API_URL', 'http://backend:8000/api')  # Имя контейнера бэкенда в Docker
 
 
-async def upload_plant_photo(telegram_id: int, photo_bytes: bytes, filename="plant.jpg"):
+async def upload_photo_to_api(telegram_id: int, photo_bytes: bytes, filename: str):
+    """Отправляет фото на анализ и создает новый чат"""
     async with aiohttp.ClientSession() as session:
         data = aiohttp.FormData()
         data.add_field('telegram_id', str(telegram_id))
-        data.add_field('original_image', photo_bytes, filename=filename, content_type='image/jpeg')
+        data.add_field('original_image', photo_bytes, filename=filename)
 
-        url = f"{API_BASE_URL}/analyses/"
-        async with session.post(url, data=data) as response:
-            return await response.json()
+        async with session.post(f"{BASE_URL}/analyses/", data=data) as resp:
+            return await resp.json(), resp.status
 
-async def send_chat_message(telegram_id: int, text: str, metrics: dict):
-    """Отправляет вопрос и контекст (метрики) на бэкенд к YandexGPT"""
+
+async def send_chat_message_to_api(telegram_id: int, message: str, session_id: int):
+    """Отправляет текст в уже существующий чат (по session_id)"""
     async with aiohttp.ClientSession() as session:
-        url = f"{API_BASE_URL}/chat/"
-        payload = {
+        json_data = {
             "telegram_id": telegram_id,
-            "message": text,
-            "metrics": metrics
+            "message": message,
+            "session_id": session_id
         }
-        try:
-            async with session.post(url, json=payload) as response:
-                if response.status in (200, 201):
-                    data = await response.json()
-                    return data.get("reply", "Пустой ответ от ИИ.")
-                return f"Ошибка API: {response.status}"
-        except Exception as e:
-            return f"Ошибка соединения: {e}"
-
-async def send_chat_message(telegram_id: int, text: str, metrics: dict):
-    async with aiohttp.ClientSession() as session:
-        url = f"{API_BASE_URL}/chat/"
-        payload = {"message": text, "metrics": metrics}
-        async with session.post(url, json=payload) as response:
-            data = await response.json()
-            return data.get("reply", "Ошибка ответа ИИ")
+        async with session.post(f"{BASE_URL}/chat/", json=json_data) as resp:
+            return await resp.json(), resp.status

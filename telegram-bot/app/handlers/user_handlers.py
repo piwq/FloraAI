@@ -1,73 +1,86 @@
 import io
-from aiogram import Router, F, Bot
+from aiogram import Router, F
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import CommandStart
-from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-
-from app.states.chat_states import PlantChatStates
-from app.services.api_client import upload_plant_photo, send_chat_message
-from app.keyboards.reply_keyboards import get_webapp_keyboard
+from aiogram.fsm.state import State, StatesGroup
+from app.services.api_client import upload_photo_to_api, send_chat_message_to_api
 
 router = Router()
 
 
+class ChatStates(StatesGroup):
+    active_chat = State()  # Храним session_id активного чата
+
+
+def get_webapp_keyboard(tg_id: int):
+    # Замени URL на свой домен или ngrok, чтобы Web App открывал твой сайт
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🌿 Открыть профиль на сайте",
+            web_app=WebAppInfo(url=f"google.com")
+        )]
+    ])
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    # Приветствие и кнопка Web App остаются
-    await message.answer(
-        "🌱 Добро пожаловать в FloraAI!\n\n"
-        "Я помогу проанализировать ваши растения.\n"
-        "Отправьте мне фотографию пшеницы или рукколы прямо сейчас:",
-        #reply_markup=get_webapp_keyboard()
+    await state.clear()  # Сбрасываем старый чат
+    text = (
+        "Добро пожаловать в FloraAI 🌿!\n\n"
+        "Чтобы начать новый чат и получить анализ растения, **отправьте мне фотографию**.\n\n"
+        "Вы можете привязать этот бот к своему профилю на сайте, нажав кнопку ниже."
     )
-    # Переводим бота в режим ожидания фото
-    await state.set_state(PlantChatStates.waiting_for_photo)
+    await message.answer(text, reply_markup=get_webapp_keyboard(message.from_user.id))
 
 
-@router.message(PlantChatStates.waiting_for_photo, F.photo)
-async def handle_photo(message: Message, bot: Bot, state: FSMContext):
-    msg = await message.answer("🔍 Сегментирую изображение... Вычисляю площадь листьев.")
+@router.message(F.photo)
+async def handle_photo(message: Message, state: FSMContext):
+    await message.answer("Фото получено. Выполняю анализ, подождите немного... ⏳")
 
-    # Скачиваем картинку в память
-    file_io = io.BytesIO()
-    await bot.download(message.photo[-1], destination=file_io)
-    photo_bytes = file_io.getvalue()
+    # Скачиваем фото в память
+    photo = message.photo[-1]
+    file_info = await message.bot.get_file(photo.file_id)
+    photo_bytes = await message.bot.download_file(file_info.file_path)
 
-    # Отправляем в Django
-    result = await upload_plant_photo(message.from_user.id, photo_bytes)
+    # Отправляем на бэкенд
+    data, status = await upload_photo_to_api(
+        telegram_id=message.from_user.id,
+        photo_bytes=photo_bytes.read(),
+        filename="plant.jpg"
+    )
 
-    if result and 'metrics' in result:
-        m = result['metrics']
-        await state.update_data(metrics=m)
-        text = (
-            f"✅ <b>Анализ завершен!</b>\n\n"
-            f"🌿 Культура: <b>{m.get('plant_type', 'Неизвестно')}</b>\n"
-            f"📏 Площадь листьев: <b>{m.get('leaf_area_cm2')} см²</b>\n"
-            f"📏 Длина корня: <b>{m.get('root_length_mm')} мм</b>\n\n"
-            f"<i>Теперь вы можете задавать мне любые вопросы по этому растению!</i>"
-        )
-        await msg.edit_text(text, parse_mode="HTML")
-        # Переводим в режим текстового чата с агрономом
-        await state.set_state(PlantChatStates.chatting_about_plant)
+    if status == 201:
+        session_id = data.get('session_id')
+        bot_reply = data.get('bot_reply', 'Анализ завершен!')
+
+        # Сохраняем ID чата в состояние юзера!
+        await state.update_data(session_id=session_id)
+        await state.set_state(ChatStates.active_chat)
+
+        await message.answer(bot_reply)
     else:
-        await msg.edit_text("❌ Ошибка при анализе. Попробуйте еще раз.")
+        await message.answer("Произошла ошибка при анализе фото. Попробуйте еще раз.")
 
 
-@router.message(PlantChatStates.waiting_for_photo)
-async def require_photo(message: Message):
-    await message.answer("Пожалуйста, сначала отправьте картинку растения (скрепка 📎).")
+@router.message(F.text)
+async def handle_text(message: Message, state: FSMContext):
+    state_data = await state.get_data()
+    session_id = state_data.get('session_id')
 
+    if not session_id:
+        await message.answer("⚠️ Сначала отправьте фотографию растения, чтобы начать новый чат!")
+        return
 
-@router.message(PlantChatStates.chatting_about_plant, F.text)
-async def handle_chat(message: Message, state: FSMContext):
-    msg = await message.answer("✍️ Агроном изучает данные...")
-    user_data = await state.get_data()
-    metrics = user_data.get("metrics", {})
+    # Если есть активный чат, отправляем сообщение в Django
+    # await message.answer("Думаю...") # Можно добавить эффект набора текста
+    data, status = await send_chat_message_to_api(
+        telegram_id=message.from_user.id,
+        message=message.text,
+        session_id=session_id
+    )
 
-    reply = await send_chat_message(message.from_user.id, message.text, metrics)
-    await msg.edit_text(reply)
-
-@router.message()
-async def echo_all(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    await message.answer(f"Я получил сообщение, но не знаю что с ним делать.\nТвое текущее состояние: {current_state}")
+    if status == 200:
+        await message.answer(data.get('reply', '...'))
+    else:
+        await message.answer(data.get('error', 'Произошла ошибка связи с нейросетью.'))

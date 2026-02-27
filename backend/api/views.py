@@ -22,6 +22,19 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+class LinkTelegramView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        telegram_id = request.data.get('telegram_id')
+        if not telegram_id:
+            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        user.telegram_id = int(telegram_id)
+        user.save()
+        return Response({"status": "success", "message": "Telegram успешно привязан"})
+
 
 # --- 2. АНАЛИЗ ФОТОГРАФИЙ ---
 class PlantAnalysisViewSet(viewsets.ModelViewSet):
@@ -69,15 +82,17 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(analysis)
         response_data = serializer.data
         response_data['session_id'] = session.id
+        response_data['bot_reply'] = bot_reply
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        """Отдает список чатов для Сайдбара"""
+        if not request.user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
         sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
         return Response([
             {
@@ -88,7 +103,15 @@ class ChatAPIView(APIView):
         ])
 
     def post(self, request):
-        """Отправляет текстовое сообщение в существующий чат"""
+        user = request.user
+        telegram_id = request.data.get('telegram_id')
+
+        if not user.is_authenticated:
+            if telegram_id:
+                user = get_object_or_404(User, telegram_id=int(telegram_id))
+            else:
+                return Response({"error": "Требуется авторизация"}, status=status.HTTP_401_UNAUTHORIZED)
+
         user_message = request.data.get('message', '')
         session_id = request.data.get('session_id')
 

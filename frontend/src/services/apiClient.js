@@ -1,5 +1,5 @@
 import axios from 'axios';
-
+export const linkTelegram = (telegramId) => apiClient.post('/auth/telegram/link/', { telegram_id: telegramId });
 const apiClient = axios.create({
   baseURL: "/api",
 });
