@@ -18,7 +18,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "🌱 Добро пожаловать в FloraAI!\n\n"
         "Я помогу проанализировать ваши растения.\n"
         "Отправьте мне фотографию пшеницы или рукколы прямо сейчас:",
-        reply_markup=get_webapp_keyboard()
+        #reply_markup=get_webapp_keyboard()
     )
     # Переводим бота в режим ожидания фото
     await state.set_state(PlantChatStates.waiting_for_photo)
