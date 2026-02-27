@@ -47,8 +47,6 @@ export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscr
 export const uploadPlantPhoto = (file) => {
   const formData = new FormData();
   formData.append('original_image', file);
-  formData.append('telegram_id', `web_${Date.now()}`);
-
   return apiClient.post('/analyses/', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });

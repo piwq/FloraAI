@@ -30,14 +30,28 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
     serializer_class = PlantAnalysisSerializer
 
     def create(self, request, *args, **kwargs):
-        telegram_id = request.data.get('telegram_id', 'web_user')
         image = request.FILES.get('original_image')
 
-        user, _ = User.objects.get_or_create(
-            telegram_id=telegram_id,
-            defaults={'username': f"user_{telegram_id}"}
-        )
+        # 1. Если пользователь авторизован (на сайте), берем его
+        if request.user.is_authenticated:
+            user = request.user
+        else:
+            # 2. Логика для Telegram-бота (если пользователь не вошел через веб)
+            telegram_id = request.data.get('telegram_id')
 
+            # Проверяем, что это число, чтобы не упасть с ошибкой ValueError
+            if not telegram_id or not str(telegram_id).isdigit():
+                return Response(
+                    {"error": "telegram_id must be a number for non-authenticated users"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            user, _ = User.objects.get_or_create(
+                telegram_id=int(telegram_id),
+                defaults={'username': f"user_{telegram_id}"}
+            )
+
+        # 3. Создаем анализ
         analysis = PlantAnalysis.objects.create(
             user=user,
             original_image=image,
@@ -51,7 +65,6 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(analysis)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):
