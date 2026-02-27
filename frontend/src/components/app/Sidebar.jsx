@@ -9,7 +9,7 @@ export const Sidebar = ({ isOpen, onNewChat, activeChatId, setActiveChatId, onDe
   const { data: sessionsData, isLoading: isLoadingSessions } = useQuery({
     queryKey: ['chatSessions'],
     queryFn: getChatSessions,
-    select: (data) => data.data.data,
+    select: (data) => res.data,
   });
   
   const { data: userData } = useQuery({

@@ -89,7 +89,7 @@ export const AppPage = () => {
         isOpen={isDeleteModalOpen}
         onClose={handleCloseDeleteModal}
         onConfirm={handleConfirmDelete}
-        isLoading={deleteMutation.isLoading}
+        isLoading={deleteMutation.isPending}
         title="Удалить чат?"
         message={`Вы уверены, что хотите навсегда удалить чат "${chatToDelete?.title}"? Это действие необратимо.`}
       />

@@ -7,6 +7,21 @@ export const useChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [metrics, setMetrics] = useState(null);
 
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        // Вызываем GET /api/chat/
+        const response = await apiClient.get('/chat/');
+        if (response.data) {
+          setMessages(response.data);
+        }
+      } catch (error) {
+        console.error("Ошибка загрузки истории:", error);
+      }
+    };
+    loadHistory();
+  }, []);
+
   const sendMessage = async (text, file = null) => {
     if (file) {
       setMessages(prev => [...prev, { role: 'user', content: `📎 Отправлено фото: ${file.name}` }]);
