@@ -18,8 +18,6 @@ apiClient.interceptors.request.use(
 );
 
 export const registerUser = (userData) => {
-  console.log("Отправляем на сервер:", userData);
-
   return apiClient.post('/auth/register', {
     username: userData.username || userData.name,
     email: userData.email,
@@ -39,9 +37,9 @@ export const updateUserProfile = (profileData) => apiClient.put('/auth/me', prof
 export const changePassword = (passwordData) => apiClient.post('/auth/change-password', passwordData);
 
 // --- ЧАТ И ФОТО ---
-export const getChatSessions = () => apiClient.get('/chat');
-export const getChatSessionDetails = (sessionId) => sessionId ? apiClient.get(`/chat/${sessionId}`) : Promise.resolve(null);
-export const deleteChatSession = (sessionId) => apiClient.delete(`/chat/${sessionId}`);
+export const getChatSessions = () => apiClient.get('/chat/');
+export const getChatSessionDetails = (sessionId) => sessionId ? apiClient.get(`/chat/${sessionId}/`) : Promise.resolve(null);
+export const deleteChatSession = (sessionId) => apiClient.delete(`/chat/${sessionId}/`);
 export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');
 
 export const uploadPlantPhoto = (file) => {
@@ -52,10 +50,11 @@ export const uploadPlantPhoto = (file) => {
   });
 };
 
-export const sendFloraChatMessage = (text, metrics) => {
+export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   return apiClient.post('/chat/', {
     message: text,
-    metrics: metrics || {}
+    metrics: metrics || {},
+    session_id: sessionId // Отправляем ID активного чата на бэк
   });
 };
 

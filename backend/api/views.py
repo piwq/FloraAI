@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from .models import PlantAnalysis, ChatMessage, ChatSession
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
+from django.shortcuts import get_object_or_404
 
 User = get_user_model()
 
@@ -32,73 +33,58 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         image = request.FILES.get('original_image')
 
-        # 1. Если пользователь авторизован (на сайте), берем его
         if request.user.is_authenticated:
             user = request.user
         else:
-            # 2. Логика для Telegram-бота (если пользователь не вошел через веб)
             telegram_id = request.data.get('telegram_id')
-
-            # Проверяем, что это число, чтобы не упасть с ошибкой ValueError
             if not telegram_id or not str(telegram_id).isdigit():
                 return Response(
                     {"error": "telegram_id must be a number for non-authenticated users"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-
             user, _ = User.objects.get_or_create(
                 telegram_id=int(telegram_id),
                 defaults={'username': f"user_{telegram_id}"}
             )
 
-        # 3. Создаем анализ
         analysis = PlantAnalysis.objects.create(
-            user=user,
-            original_image=image,
-            status='COMPLETED',
-            metrics={
-                "plant_type": "Arugula (Руккола)",
-                "leaf_area_cm2": 15.4,
-                "root_length_mm": 120.5,
-                "stem_diameter_mm": 4.2
-            }
+            user=user, original_image=image, status='COMPLETED',
+            metrics={"plant_type": "Arugula (Руккола)", "leaf_area_cm2": 15.4, "root_length_mm": 120.5,
+                     "stem_diameter_mm": 4.2}
         )
+
+        ChatSession.objects.create(user=user, analysis=analysis)
+
         serializer = self.get_serializer(analysis)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-# --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):
-    # Теперь только для авторизованных, чтобы история была привязана к аккаунту
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        """Загрузка истории сообщений текущего пользователя"""
-        # Ищем сессию пользователя (создаем, если её еще нет)
-        session, _ = ChatSession.objects.get_or_create(user=request.user)
-        # Получаем все сообщения этой сессии
-        messages = session.messages.all().order_by('created_at')
-
-        # Превращаем в список для фронтенда
-        data = [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
-        return Response(data)
+        """Отдает список чатов для Сайдбара (не сами сообщения)"""
+        sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
+        return Response([
+            {
+                "id": s.id,
+                "title": f"Анализ #{s.analysis.id} ({s.analysis.metrics.get('plant_type', 'Растение')})" if s.analysis else "Новый чат",
+                "created_at": s.created_at
+            } for s in sessions
+        ])
 
     def post(self, request):
-        """Отправка нового сообщения и получение ответа от Яндекс GPT"""
+        """Отправляет сообщение. Если нет session_id — создает новый чат"""
         user_message = request.data.get('message', '')
         metrics = request.data.get('metrics', {})
+        session_id = request.data.get('session_id')
 
-        # 1. Получаем сессию пользователя
-        session, _ = ChatSession.objects.get_or_create(user=request.user)
+        if session_id:
+            session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+        else:
+            session = ChatSession.objects.create(user=request.user)
 
-        # 2. Сохраняем сообщение пользователя в БД
-        ChatMessage.objects.create(
-            session=session,
-            role='user',
-            content=user_message
-        )
+        # Сохраняем вопрос юзера
+        ChatMessage.objects.create(session=session, role='user', content=user_message)
 
         system_prompt = (
             f"Ты — профессиональный агроном FloraAI. Данные растения: "
@@ -113,24 +99,15 @@ class ChatAPIView(APIView):
 
         if not api_key or not folder_id:
             answer = f"Ответ (Заглушка). Нейросеть отключена. Вы спросили: {user_message}"
-
-            # Сохраняем заглушку в БД, чтобы она была в истории
-            ChatMessage.objects.create(
-                session=session,
-                role='assistant',
-                content=answer
-            )
-            return Response({"reply": answer})
+            ChatMessage.objects.create(session=session, role='assistant', content=answer)
+            return Response({"reply": answer, "session_id": session.id})
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {api_key}"}
         data = {
             "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
             "completionOptions": {"temperature": 0.3, "maxTokens": 1000},
-            "messages": [
-                {"role": "system", "text": system_prompt},
-                {"role": "user", "text": user_message}
-            ]
+            "messages": [{"role": "system", "text": system_prompt}, {"role": "user", "text": user_message}]
         }
 
         try:
@@ -139,13 +116,25 @@ class ChatAPIView(APIView):
                 response_json = json.loads(res.read())
                 answer = response_json['result']['alternatives'][0]['message']['text']
 
-                # 3. Сохраняем ответ ассистента в БД
-                ChatMessage.objects.create(
-                    session=session,
-                    role='assistant',
-                    content=answer
-                )
-
-                return Response({"reply": answer})
+                # Сохраняем ответ ИИ
+                ChatMessage.objects.create(session=session, role='assistant', content=answer)
+                return Response({"reply": answer, "session_id": session.id})
         except Exception as e:
             return Response({"reply": f"⚠️ Ошибка связи с Яндекс: {str(e)}"}, status=500)
+
+class ChatDetailAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, session_id):
+        messages = ChatMessage.objects.filter(session_id=session_id, session__user=request.user).order_by('created_at')
+        return Response([{"role": m.role, "content": m.content} for m in messages])
+
+class ChatDetailAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+        messages = session.messages.all().order_by('created_at')
+        return Response([
+            {"role": m.role, "content": m.content} for m in messages
+        ])

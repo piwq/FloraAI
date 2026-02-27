@@ -1,26 +1,31 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import apiClient, { uploadPlantPhoto, sendFloraChatMessage } from '@/services/apiClient';
+import { uploadPlantPhoto, sendFloraChatMessage, getChatSessionDetails } from '@/services/apiClient';
 
-export const useChat = () => {
+export const useChat = (activeChatId, onNewChatCreated) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [metrics, setMetrics] = useState(null);
 
+  // Загружаем сообщения, если выбран чат в сайдбаре
   useEffect(() => {
-    const loadHistory = async () => {
+    if (!activeChatId) {
+      setMessages([]); // Если ID нет - это "Новый чат", экран пуст
+      return;
+    }
+
+    const loadSessionMessages = async () => {
       try {
-        // Вызываем GET /api/chat/
-        const response = await apiClient.get('/chat/');
-        if (response.data) {
+        const response = await getChatSessionDetails(activeChatId);
+        if (response && response.data) {
           setMessages(response.data);
         }
       } catch (error) {
-        console.error("Ошибка загрузки истории:", error);
+        console.error("Ошибка загрузки сообщений:", error);
       }
     };
-    loadHistory();
-  }, []);
+    loadSessionMessages();
+  }, [activeChatId]);
 
   const sendMessage = async (text, file = null) => {
     if (file) {
@@ -48,8 +53,14 @@ export const useChat = () => {
       setMessages(prev => [...prev, { role: 'user', content: text }]);
       setIsLoading(true);
       try {
-        const response = await sendFloraChatMessage(text, metrics);
+        const response = await sendFloraChatMessage(text, metrics, activeChatId);
         setMessages(prev => [...prev, { role: 'assistant', content: response.data.reply }]);
+
+        // Если это был первый месседж (Новый чат), бэкенд вернет ID новой сессии.
+        // Сообщаем странице, чтобы она переключилась на этот чат
+        if (!activeChatId && response.data.session_id && onNewChatCreated) {
+          onNewChatCreated(response.data.session_id);
+        }
       } catch (error) {
         setMessages(prev => [...prev, { role: 'assistant', content: '❌ Ошибка связи с нейросетью.' }]);
       } finally {

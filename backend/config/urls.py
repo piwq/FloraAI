@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from api.views import ChatAPIView, PlantAnalysisViewSet, RegisterView, UserProfileView
+from api.views import ChatAPIView, PlantAnalysisViewSet, RegisterView, UserProfileView, ChatDetailAPIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 router = DefaultRouter()
@@ -18,4 +18,5 @@ urlpatterns = [
     # Роуты функционала бота и чата
     path('api/', include(router.urls)),
     path('api/chat/', ChatAPIView.as_view(), name='chat'),
+    path('api/chat/<int:session_id>/', ChatDetailAPIView.as_view(), name='chat-detail'),
 ]
