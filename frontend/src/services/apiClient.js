@@ -18,8 +18,10 @@ apiClient.interceptors.request.use(
 );
 
 export const registerUser = (userData) => {
+  console.log("Отправляем на сервер:", userData);
+
   return apiClient.post('/auth/register', {
-    username: userData.username,
+    username: userData.username || userData.name,
     email: userData.email,
     password: userData.password
   });
@@ -32,42 +34,20 @@ export const loginUser = (credentials) => {
   });
 };
 
-export const getUserProfile = () => {
-  return apiClient.get('/auth/me');
-};
+export const getUserProfile = () => apiClient.get('/auth/me');
+export const updateUserProfile = (profileData) => apiClient.put('/auth/me', profileData);
+export const changePassword = (passwordData) => apiClient.post('/auth/change-password', passwordData);
 
-export const updateUserProfile = (profileData) => {
-  return apiClient.put('/auth/me', profileData);
-};
-
-export const changePassword = (passwordData) => {
-  return apiClient.post('/auth/change-password', passwordData);
-};
-
-
-export const getChatSessions = () => {
-  return apiClient.get('/chat');
-};
-
-export const getChatSessionDetails = (sessionId) => {
-  if (!sessionId) return Promise.resolve(null);
-  return apiClient.get(`/chat/${sessionId}`);
-};
-
-export const deleteChatSession = (sessionId) => {
-  return apiClient.delete(`/chat/${sessionId}`);
-};
-
-export const mockSubscribeToPremium = () => {
-  return apiClient.post('/payment/mock-subscribe');
-};
-
-export default apiClient;
+// --- ЧАТ И ФОТО ---
+export const getChatSessions = () => apiClient.get('/chat');
+export const getChatSessionDetails = (sessionId) => sessionId ? apiClient.get(`/chat/${sessionId}`) : Promise.resolve(null);
+export const deleteChatSession = (sessionId) => apiClient.delete(`/chat/${sessionId}`);
+export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');
 
 export const uploadPlantPhoto = (file) => {
   const formData = new FormData();
   formData.append('original_image', file);
-  formData.append('telegram_id', `web_${Date.now()}`); // Генерируем временный ID для веба
+  formData.append('telegram_id', `web_${Date.now()}`);
 
   return apiClient.post('/analyses/', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
