@@ -67,49 +67,77 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
-# backend/api/views.py
-
 class ChatAPIView(APIView):
+    # Теперь только для авторизованных, чтобы история была привязана к аккаунту
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # Ищем единственную сессию пользователя (или создаем её)
+        """Загрузка истории сообщений текущего пользователя"""
+        # Ищем сессию пользователя (создаем, если её еще нет)
         session, _ = ChatSession.objects.get_or_create(user=request.user)
-        # Получаем сообщения и возвращаем их в формате, который понимает фронтенд
+        # Получаем все сообщения этой сессии
         messages = session.messages.all().order_by('created_at')
 
-        return Response([
-            {
-                "role": msg.role,
-                "content": msg.content  # Убедись, что тут content, а не text
-            } for msg in messages
-        ])
+        # Превращаем в список для фронтенда
+        data = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+        return Response(data)
 
     def post(self, request):
+        """Отправка нового сообщения и получение ответа от Яндекс GPT"""
         user_message = request.data.get('message', '')
         metrics = request.data.get('metrics', {})
 
+        # 1. Получаем сессию пользователя
         session, _ = ChatSession.objects.get_or_create(user=request.user)
 
-        # СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ
+        # 2. Сохраняем сообщение пользователя в БД
         ChatMessage.objects.create(
             session=session,
             role='user',
             content=user_message
         )
 
-        # ... (логика запроса к YandexGPT остается прежней) ...
+        system_prompt = (
+            f"Ты — профессиональный агроном FloraAI. Данные растения: "
+            f"Культура: {metrics.get('plant_type', 'Неизвестно')}, "
+            f"Площадь листьев: {metrics.get('leaf_area_cm2', '0')} см2, "
+            f"Длина корня: {metrics.get('root_length_mm', '0')} мм. "
+            f"Отвечай кратко и давай советы по уходу."
+        )
+
+        api_key = os.getenv("YANDEX_API_KEY")
+        folder_id = os.getenv("YANDEX_FOLDER_ID")
+
+        if not api_key or not folder_id:
+            return Response({"reply": "Нейросеть временно отключена (нет ключей)."})
+
+        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+        headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {api_key}"}
+        data = {
+            "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
+            "completionOptions": {"temperature": 0.3, "maxTokens": 1000},
+            "messages": [
+                {"role": "system", "text": system_prompt},
+                {"role": "user", "text": user_message}
+            ]
+        }
 
         try:
-            # После получения ответа от Яндекса:
-            answer = json.loads(res.read())['result']['alternatives'][0]['message']['text']
+            req = urllib.request.Request(url, headers=headers, data=json.dumps(data).encode())
+            with urllib.request.urlopen(req) as res:
+                response_json = json.loads(res.read())
+                answer = response_json['result']['alternatives'][0]['message']['text']
 
-            # СОХРАНЯЕМ ОТВЕТ АССИСТЕНТА
-            ChatMessage.objects.create(
-                session=session,
-                role='assistant',
-                content=answer
-            )
-            return Response({"reply": answer})
+                # 3. Сохраняем ответ ассистента в БД
+                ChatMessage.objects.create(
+                    session=session,
+                    role='assistant',
+                    content=answer
+                )
+
+                return Response({"reply": answer})
         except Exception as e:
-            return Response({"reply": f"Ошибка: {str(e)}"}, status=500)
+            return Response({"reply": f"⚠️ Ошибка связи с Яндекс: {str(e)}"}, status=500)
