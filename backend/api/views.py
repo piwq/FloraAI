@@ -145,3 +145,10 @@ class ChatDetailAPIView(APIView):
         return Response([
             {"role": m.role, "content": m.content} for m in messages
         ])
+
+    def delete(self, request, session_id):
+        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+
+        session.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
