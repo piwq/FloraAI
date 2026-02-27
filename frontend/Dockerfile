@@ -28,7 +28,7 @@ RUN echo 'server { \
       location /api { \
         resolver 127.0.0.11 valid=30s; \
         \
-        set $backend_url http://morpheus_api_gateway:3001; \
+        set $backend_url http://backend:8000; \
         proxy_pass $backend_url; \
         proxy_http_version 1.1; \
         proxy_set_header Upgrade $http_upgrade; \
@@ -40,7 +40,7 @@ RUN echo 'server { \
       } \
        location ~ ^/(api|socket\.io|storage)/ { \
         resolver 127.0.0.11 valid=30s; \
-        set $backend_url http://morpheus_api_gateway:3001; \
+        set $backend_url http://backend:8000; \
         \
         proxy_pass $backend_url; \
         proxy_http_version 1.1; \

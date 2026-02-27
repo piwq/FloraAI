@@ -1,3 +1,1 @@
-from .chat_states import ChatStates
-
-__all__ = ("ChatStates",)
+from .chat_states import PlantChatStates
