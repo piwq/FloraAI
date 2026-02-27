@@ -38,6 +38,7 @@ async def handle_photo(message: Message, bot: Bot, state: FSMContext):
 
     if result and 'metrics' in result:
         m = result['metrics']
+        await state.update_data(metrics=m)
         text = (
             f"✅ <b>Анализ завершен!</b>\n\n"
             f"🌿 Культура: <b>{m.get('plant_type', 'Неизвестно')}</b>\n"
@@ -58,10 +59,12 @@ async def require_photo(message: Message):
 
 
 @router.message(PlantChatStates.chatting_about_plant, F.text)
-async def handle_chat(message: Message):
-    # Здесь юзер задает вопросы по проанализированному фото
-    msg = await message.answer("Рассуждаю...")
-    reply = await send_chat_message(message.from_user.id, message.text)
+async def handle_chat(message: Message, state: FSMContext):
+    msg = await message.answer("✍️ Агроном изучает данные...")
+    user_data = await state.get_data()
+    metrics = user_data.get("metrics", {})
+
+    reply = await send_chat_message(message.from_user.id, message.text, metrics)
     await msg.edit_text(reply)
 
 @router.message()
