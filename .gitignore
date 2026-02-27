@@ -1,31 +1,20 @@
-.DS_Store
-Thumbs.db
+# Django
+backend/venv/
+backend/__pycache__/
+backend/db.sqlite3
+backend/media/
+backend/static/
 
-*.log
-*.tmp
+# Node/React
+frontend/node_modules/
+frontend/dist/
 
-node_modules
-/frontend/node_modules
-/api-gateway/node_modules
-
-/frontend/dist
-.vite/
-
-__pycache__/
-*.pyc
-venv/
-*.venv/
-env/
-*.env/
-.env.*.local
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
-
+# Environment variables (НИКОГДА не пушим файлы с секретами)
 .env
-*/.env
+backend/.env
+frontend/.env
+telegram-bot/.env
 
-docker-compose.override.yml
-
-.idea/
-.vscode/
+# OS
+.DS_Store
+.idea
