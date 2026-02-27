@@ -27,7 +27,6 @@ services:
     networks:
       - flora_net
 
-  # Наш новый бэкенд
   backend:
     build: ./backend
     container_name: flora_backend
@@ -36,6 +35,8 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    volumes:
+      - ./backend:/app
     networks:
       - flora_net
     depends_on:

@@ -13,7 +13,7 @@ export const AuthProvider = ({ children }) => {
       if (token) {
         const decodedToken = jwtDecode(token);
         if (decodedToken.exp * 1000 > Date.now()) {
-          setUser({ id: decodedToken.userId, email: decodedToken.email });
+          setUser({ id: decodedToken.user_id, email: decodedToken.email || 'User' });
         } else {
           localStorage.removeItem('authToken');
         }
@@ -29,7 +29,7 @@ export const AuthProvider = ({ children }) => {
   const login = (token) => {
     localStorage.setItem('authToken', token);
     const decodedToken = jwtDecode(token);
-    setUser({ id: decodedToken.userId, email: decodedToken.email });
+    setUser({ id: decodedToken.user_id, email: decodedToken.email || 'User' });
   };
 
   const logout = () => {
@@ -37,17 +37,11 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const value = {
-    user,
-    isAuthenticated: !!user,
-    isLoading,
-    login,
-    logout,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+export const useAuth = () => useContext(AuthContext);
