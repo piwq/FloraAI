@@ -3,141 +3,75 @@ version: '3.8'
 services:
   postgres-db:
     image: postgres:15
-    container_name: morpheus_db
+    container_name: flora_db
     restart: always
     environment:
-      POSTGRES_USER: antihype
-      POSTGRES_PASSWORD: NischiyHype123
-      POSTGRES_DB: sonnik_db
+      POSTGRES_USER: flora_user
+      POSTGRES_PASSWORD: flora_password
+      POSTGRES_DB: flora_db
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - morpheus_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U antihype -d sonnik_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - flora_net
 
   redis-cache:
     image: redis:7-alpine
-    container_name: morpheus_redis 
+    container_name: flora_redis
     restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
-      - morpheus_net
+      - flora_net
 
-  api-gateway:
-    build: ./api-gateway 
-    container_name: morpheus_api_gateway
+  # Наш новый бэкенд
+  backend:
+    build: ./backend
+    container_name: flora_backend
     restart: always
-    env_file:
-      - ./api-gateway/.env 
     ports:
-      - "3001:3001"
-      - "5555:5555"
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
     networks:
-      - morpheus_net
+      - flora_net
     depends_on:
-      postgres-db:
-        condition: service_healthy
-      redis-cache:
-        condition: service_started
+      - postgres-db
+      - redis-cache
 
   frontend:
     build:
-      context: ./frontend 
+      context: ./frontend
       args:
-        VITE_API_URL: http://localhost:3001/api
-    container_name: morpheus_frontend
+        VITE_API_URL: http://localhost:8000/api
+    container_name: flora_frontend
     restart: always
     ports:
       - "80:80"
     networks:
-      - morpheus_net
+      - flora_net
     depends_on:
-      - api-gateway
-
-  ai-service:
-    build: 
-      context: ./ai-service  
-      dockerfile: Dockerfile
-    container_name: morpheus_ai
-    restart: always
-    env_file:
-      - ./ai-service/app/.env
-    ports:
-      - "3002:3002" 
-    networks:
-      - morpheus_net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3002"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      - backend
 
   telegram-bot:
     build: ./telegram-bot
-    container_name: morpheus_telegram_bot
+    container_name: flora_telegram_bot
     restart: always
     env_file:
       - ./telegram-bot/.env
-    environment:
-      - REDIS_HOST=redis-cache
     networks:
-      - morpheus_net
+      - flora_net
     depends_on:
-      - api-gateway
+      - backend
       - redis-cache
-
-  tts-service:
-    build:
-      context: ./tts-service
-      dockerfile: Dockerfile
-    container_name: morpheus_tts
-    restart: unless-stopped
-    env_file:
-      - ./tts-service/.env
-    ports:
-      - "3010:3010"
-    networks:
-      - morpheus_net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:3010/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  asr-service:
-    build:
-      context: ./asr-service
-      dockerfile: Dockerfile
-    container_name: morpheus_ars
-    restart: always
-    env_file:
-      - ./asr-service/.env
-    ports:
-      - "3020:3020"
-    networks:
-      - morpheus_net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3020/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
-  morpheus_net:
+  flora_net:
     driver: bridge
