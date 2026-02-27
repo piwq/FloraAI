@@ -112,7 +112,15 @@ class ChatAPIView(APIView):
         folder_id = os.getenv("YANDEX_FOLDER_ID")
 
         if not api_key or not folder_id:
-            return Response({"reply": "Нейросеть временно отключена (нет ключей)."})
+            answer = f"Ответ (Заглушка). Нейросеть отключена. Вы спросили: {user_message}"
+
+            # Сохраняем заглушку в БД, чтобы она была в истории
+            ChatMessage.objects.create(
+                session=session,
+                role='assistant',
+                content=answer
+            )
+            return Response({"reply": answer})
 
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {api_key}"}

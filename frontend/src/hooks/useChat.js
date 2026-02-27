@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { uploadPlantPhoto, sendFloraChatMessage } from '@/services/apiClient';
+import apiClient, { uploadPlantPhoto, sendFloraChatMessage } from '@/services/apiClient';
 
 export const useChat = () => {
   const [messages, setMessages] = useState([]);
