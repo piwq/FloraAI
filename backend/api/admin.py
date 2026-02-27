@@ -1,3 +1,7 @@
 from django.contrib import admin
+from .models import User, PlantAnalysis, ChatSession, ChatMessage
 
-# Register your models here.
+admin.site.register(User)
+admin.site.register(PlantAnalysis)
+admin.site.register(ChatSession)
+admin.site.register(ChatMessage)
