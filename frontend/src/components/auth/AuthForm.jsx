@@ -9,7 +9,6 @@ import { AuthInput } from './AuthInput';
 
 const AuthForm = () => {
   const [isLogin, setIsLogin] = useState(true);
-  // Используем username вместо name
   const [formData, setFormData] = useState({ username: '', email: '', password: '' });
   const [isAgreed, setIsAgreed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
