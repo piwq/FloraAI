@@ -2,10 +2,10 @@ import os
 import io
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from app.services.api_client import upload_photo_to_api, send_chat_message_to_api
+from app.services.api_client import upload_photo_to_api, send_chat_message_to_api, get_bot_profile
 
 router = Router()
 
@@ -14,15 +14,15 @@ class ChatStates(StatesGroup):
     active_chat = State()  # Состояние активного диалога с ИИ
 
 
-def get_webapp_keyboard(tg_id: int):
+def get_webapp_keyboard(tg_id: int, msg_id: int):
     webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
+    # Передаем и tg_id, и msg_id в URL!
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="🌿 Привязать профиль FloraAI",
-            web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}")
+            web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}&msg_id={msg_id}")
         )]
     ])
-
 
 def get_premium_keyboard():
     webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
@@ -36,14 +36,26 @@ def get_premium_keyboard():
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()  # Сбрасываем всё при /start
+    await state.clear()
+
+    profile = await get_bot_profile(message.from_user.id)
+    if profile and profile.get('is_linked'):
+        text = (
+            "🌿 **С возвращением в FloraAI!**\n\n"
+            "📸 Отправьте фото растения для получения анализа.\n"
+            "💬 После анализа вы можете обсудить результат с ИИ-агрономом.\n\n"
+            "👤 Для просмотра профиля используйте /me"
+        )
+        await message.answer(text)
+        return
+
     text = (
         "Привет! Я FloraAI — твой ИИ-агроном. 🌿\n\n"
         "📸 **Просто отправь фото растения**, чтобы получить моментальный анализ.\n\n"
         "🔗 Чтобы задавать вопросы ИИ после анализа, **привяжи свой аккаунт**:"
     )
-    await message.answer(text, reply_markup=get_webapp_keyboard(message.from_user.id))
-
+    sent_msg = await message.answer(text)
+    await sent_msg.edit_reply_markup(reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))
 
 @router.message(F.photo)
 async def handle_photo(message: Message, state: FSMContext):
@@ -126,3 +138,27 @@ async def handle_text_no_session(message: Message):
         "Если вы уже отправили фото, но не можете писать — убедитесь, что ваш аккаунт привязан.",
         reply_markup=get_webapp_keyboard(message.from_user.id)
     )
+
+
+@router.message(Command("me", "profile"))
+async def cmd_me(message: Message):
+    profile = await get_bot_profile(message.from_user.id)
+
+    if not profile or not profile.get('is_linked'):
+        await message.answer(
+            "⚠️ **Ваш аккаунт не привязан!**\n\n"
+            "Привяжите профиль через команду /start, чтобы открыть доступ к чату с ИИ и сохранять историю."
+        )
+        return
+
+    sub = "💎 Premium" if profile.get('subscription') == "PREMIUM" else "🆓 Бесплатный"
+    analyses = profile.get('analyses_count', 0)
+
+    text = (
+        f"👤 **Профиль FloraAI**\n\n"
+        f"📧 Email: `{profile.get('email')}`\n"
+        f"⭐ Тариф: **{sub}**\n"
+        f"📊 Анализов сделано: **{analyses}**\n\n"
+        f"Отправьте фото, чтобы начать новый анализ! 🌿"
+    )
+    await message.answer(text, parse_mode="Markdown")

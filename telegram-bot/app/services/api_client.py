@@ -25,3 +25,13 @@ async def send_chat_message_to_api(telegram_id: int, message: str, session_id: i
         }
         async with session.post(f"{BASE_URL}/chat/", json=json_data) as resp:
             return await resp.json(), resp.status
+
+async def get_bot_profile(telegram_id: int):
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"{BASE_URL}/bot/profile/?telegram_id={telegram_id}") as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            print(f"Ошибка получения профиля: {e}")
+        return None

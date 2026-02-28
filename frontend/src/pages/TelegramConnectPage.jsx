@@ -14,6 +14,7 @@ export const TelegramConnectPage = () => {
   const [linkError, setLinkError] = useState(null); // Состояние для хранения ошибки
 
   const telegramId = searchParams.get('tg_id');
+  const messageId = searchParams.get('msg_id');
 
     const performLink = async () => {
       if (!telegramId) {

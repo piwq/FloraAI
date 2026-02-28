@@ -65,6 +65,7 @@ class LinkTelegramView(APIView):
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
         username = request.data.get('username')
+        message_id = request.data.get('message_id') # ПОЛУЧАЕМ ID СООБЩЕНИЯ
 
         if not telegram_id:
             return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
@@ -74,30 +75,39 @@ class LinkTelegramView(APIView):
         except ValueError:
             return Response({"error": "Некорректный ID"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Умная проверка дубликатов
         existing_user = User.objects.filter(telegram_id=tg_id_int).exclude(id=request.user.id).first()
         if existing_user:
             if not existing_user.email:
-                # Если это бот-пустышка (вы тестировали бот до авторизации на сайте)
-                # Переносим его историю на ваш профиль и удаляем пустышку
                 PlantAnalysis.objects.filter(user=existing_user).update(user=request.user)
                 ChatSession.objects.filter(user=existing_user).update(user=request.user)
                 existing_user.delete()
             else:
                 return Response({"error": "Этот Telegram уже привязан к другому профилю"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Привязываем данные к текущему пользователю
         user = request.user
         user.telegram_id = tg_id_int
-        user.telegram_username = username  # Сохраняем никнейм для фронтенда!
+        user.telegram_username = username
         user.save()
 
-        # Отправляем уведомление в бот
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if bot_token:
-            msg = f"🤝 **Профиль FloraAI успешно привязан!**\n\nТеперь ваша история синхронизирована. Вам доступно общение с ИИ после каждого анализа."
+            import requests
+            # 1. УДАЛЯЕМ СТАРОЕ СООБЩЕНИЕ С КНОПКОЙ
+            if message_id:
+                try:
+                    requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+                                  json={"chat_id": tg_id_int, "message_id": int(message_id)})
+                except Exception:
+                    pass
+
+            # 2. ОТПРАВЛЯЕМ НОВУЮ ИНСТРУКЦИЮ
+            msg = (
+                "🤝 **Профиль FloraAI успешно привязан!**\n\n"
+                "📸 Отправьте фото растения для анализа.\n"
+                "💬 После анализа вы сможете задать вопросы агроному.\n\n"
+                "👤 Используйте команду /me для просмотра профиля."
+            )
             try:
-                import requests
                 requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
                               json={"chat_id": tg_id_int, "text": msg, "parse_mode": "Markdown"})
             except Exception:
@@ -279,3 +289,24 @@ class MockSubscribeView(APIView):
         user.is_premium = True
         user.save()
         return Response({"status": "success", "message": "Premium подписка успешно активирована!"})
+
+class BotProfileView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        tg_id = request.query_params.get('telegram_id')
+        if not tg_id:
+            return Response({"error": "Missing telegram_id"}, status=400)
+
+        user = User.objects.filter(telegram_id=tg_id).first()
+        if not user or not user.email:
+            return Response({"is_linked": False})
+
+        analyses_count = PlantAnalysis.objects.filter(user=user).count()
+        return Response({
+            "is_linked": True,
+            "email": user.email,
+            "username": user.telegram_username,
+            "subscription": "PREMIUM" if user.is_premium else "FREE",
+            "analyses_count": analyses_count
+        })
