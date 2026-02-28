@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { BrainCircuit, Book, Send, ArrowRight } from 'lucide-react'; 
+import { BrainCircuit, Sprout, Send, ArrowRight } from 'lucide-react';
 
 const PossibilityCard = ({ icon, title, description, delay, link }) => {
   const cardContent = (
@@ -10,7 +10,7 @@ const PossibilityCard = ({ icon, title, description, delay, link }) => {
       viewport={{ once: true, amount: 0.5 }}
       transition={{ duration: 0.6, delay, ease: "easeOut" }}
       className={`bg-surface-1 p-8 rounded-2xl border border-border-color backdrop-blur-sm h-full flex flex-col
-                  ${link ? 'group hover:border-accent-ai transition-colors cursor-pointer' : ''}`} 
+                  ${link ? 'group hover:border-accent-ai transition-colors cursor-pointer' : ''}`}
     >
       <div className="text-accent-ai mb-4">{icon}</div>
       <h3 className="font-headings text-2xl font-semibold mb-2">{title}</h3>
@@ -42,22 +42,22 @@ export const PossibilitiesSection = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <PossibilityCard
             icon={<BrainCircuit size={40} />}
-            title="Глубокий ИИ-анализ"
-            description="Наш алгоритм учитывает не только символы, но и эмоциональный фон и контекст вашей жизни для максимально точной трактовки."
+            title="Точный ИИ-анализ"
+            description="Нейросеть вычисляет метрики роста и помогает обнаружить проблемы с развитием культуры на ранних этапах."
             delay={0.1}
           />
           <PossibilityCard
-            icon={<Book size={40} />}
-            title="Личный дневник снов"
-            description="Сохраняйте все свои сны и их толкования. Отслеживайте повторяющиеся мотивы и наблюдайте за своим внутренним миром."
+            icon={<Sprout size={40} />}
+            title="История наблюдений"
+            description="Сохраняйте все анализы в одном месте. Отслеживайте динамику роста и развитие ваших растений во времени."
             delay={0.3}
           />
           <PossibilityCard
             icon={<Send size={40} />}
             title="Интеграция с Telegram"
-            description="Общайтесь с Морфеусом прямо в любимом мессенджере. Ваши сны всегда под рукой, где бы вы ни были."
+            description="Анализируйте растения прямо с телефона. Ваш личный ИИ-агроном всегда под рукой, где бы вы ни были."
             delay={0.5}
-            link="https://t.me/DreamMorpheusBot"
+            link="https://t.me/FloraAIBot"
           />
         </div>
       </div>

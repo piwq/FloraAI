@@ -13,16 +13,16 @@ export const CTASection = () => {
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="font-headings text-4xl md:text-5xl font-bold text-text-primary mb-6"
         >
-          Готовы заглянуть в свое подсознание?
+          Готовы улучшить здоровье ваших растений?
         </motion.h2>
-        <motion.p 
+        <motion.p
           initial={{ y: 50, opacity: 0 }}
           whileInView={{ y: 0, opacity: 1 }}
           viewport={{ once: true, amount: 0.5 }}
           transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
           className="text-lg text-text-secondary mb-10"
         >
-          Присоединяйтесь к пользователям, которые уже открывают тайны своих снов с Морфеусом.
+          Присоединяйтесь к садоводам и фермерам, которые уже используют FloraAI для ухода за культурами.
         </motion.p>
         <Link to="/auth">
           <motion.button
