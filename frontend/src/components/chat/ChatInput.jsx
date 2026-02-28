@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Send, Paperclip, X } from 'lucide-react';
 
-export const ChatInput = ({ onSendMessage, isLoading }) => {
+export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
   const [message, setMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
@@ -38,6 +38,9 @@ export const ChatInput = ({ onSendMessage, isLoading }) => {
     }
   };
 
+  // Если требуется фото (новый чат) и фото еще не выбрано, блокируем текст
+  const isTextDisabled = isLoading || (requirePhotoFirst && !selectedFile);
+
   return (
     <div className="bg-surface-2 border-t border-border-color p-4">
       {selectedFile && (
@@ -52,7 +55,7 @@ export const ChatInput = ({ onSendMessage, isLoading }) => {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-3 text-text-secondary hover:text-accent-ai transition-colors flex-shrink-0"
+          className={`p-3 transition-colors flex-shrink-0 ${requirePhotoFirst && !selectedFile ? 'text-accent-ai animate-pulse' : 'text-text-secondary hover:text-accent-ai'}`}
           disabled={isLoading}
           title="Прикрепить фото растения"
         >
@@ -69,9 +72,9 @@ export const ChatInput = ({ onSendMessage, isLoading }) => {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Спросите агронома о вашем растении..."
-          className="flex-1 bg-surface-1 text-text-primary rounded-xl p-3 max-h-32 min-h-[50px] resize-none focus:outline-none focus:ring-1 focus:ring-accent-ai border border-border-color"
-          disabled={isLoading}
+          placeholder={requirePhotoFirst && !selectedFile ? "Сначала прикрепите фото (скрепка слева)..." : "Спросите агронома о вашем растении..."}
+          className={`flex-1 bg-surface-1 text-text-primary rounded-xl p-3 max-h-32 min-h-[50px] resize-none focus:outline-none focus:ring-1 focus:ring-accent-ai border border-border-color ${isTextDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          disabled={isTextDisabled}
           rows={1}
         />
         <button

@@ -1,7 +1,10 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from api.views import ChatAPIView, PlantAnalysisViewSet, RegisterView, UserProfileView, ChatDetailAPIView, LinkTelegramView
+from api.views import (
+    ChatAPIView, PlantAnalysisViewSet, RegisterView,
+    UserProfileView, ChatDetailAPIView, LinkTelegramView, MockSubscribeView
+)
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 router = DefaultRouter()
@@ -20,4 +23,7 @@ urlpatterns = [
     path('api/chat/', ChatAPIView.as_view(), name='chat'),
     path('api/chat/<int:session_id>/', ChatDetailAPIView.as_view(), name='chat-detail'),
     path('api/auth/telegram/link/', LinkTelegramView.as_view(), name='link-telegram'),
+
+    # Роут для мок-оплаты
+    path('api/payment/mock-subscribe', MockSubscribeView.as_view(), name='mock-subscribe'),
 ]

@@ -175,3 +175,12 @@ class ChatDetailAPIView(APIView):
         session.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+class MockSubscribeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        user.is_premium = True
+        user.save()
+        return Response({"status": "success", "message": "Premium подписка успешно активирована!"})
