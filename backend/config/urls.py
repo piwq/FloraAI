@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from api.views import (
     ChatAPIView, PlantAnalysisViewSet, RegisterView,
     UserProfileView, ChatDetailAPIView, LinkTelegramView,
-    ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView
+    ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView, LogoutView
 )
 
 router = DefaultRouter()
@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/auth/login', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/me', UserProfileView.as_view(), name='auth_me'),
     path('api/auth/change-password', ChangePasswordView.as_view(), name='change_password'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth_logout'),
 
     # Роуты бота, чата и оплаты
     path('api/', include(router.urls)),

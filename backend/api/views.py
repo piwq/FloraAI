@@ -338,3 +338,8 @@ class BotHistoryView(APIView):
             })
 
         return Response({"history": history})
+
+class LogoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+    def post(self, request):
+        return Response({"status": "success"})
