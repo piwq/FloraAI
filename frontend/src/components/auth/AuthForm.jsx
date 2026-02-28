@@ -109,9 +109,30 @@ const AuthForm = () => {
 
                 {!isLogin && (
                   <>
-                    <AuthInput name="birthDate" type="date" value={formData.birthDate} onChange={handleInputChange} required />
+                    <div className="flex flex-col space-y-1">
+                      <label htmlFor="birthDate" className="text-sm font-medium text-text-secondary pl-1">
+                        Дата рождения
+                      </label>
+                      <AuthInput
+                        id="birthDate"
+                        name="birthDate"
+                        type="date"
+                        value={formData.birthDate}
+                        onChange={handleInputChange}
+                        required
+                        min="1926-01-01"
+                        max={new Date().toISOString().split("T")[0]}
+                      />
+                    </div>
+
                     <div className="flex items-start space-x-3 pt-2">
-                      <input type="checkbox" id="agreement" checked={isAgreed} onChange={(e) => setIsAgreed(e.target.checked)} className="mt-1 h-4 w-4 accent-accent-ai" />
+                      <input
+                        type="checkbox"
+                        id="agreement"
+                        checked={isAgreed}
+                        onChange={(e) => setIsAgreed(e.target.checked)}
+                        className="mt-1 h-4 w-4 accent-accent-ai"
+                      />
                       <label htmlFor="agreement" className="text-text-secondary text-sm">
                         Я принимаю условия <Link to="/terms" className="text-accent-ai hover:underline">Пользовательского соглашения</Link> и даю согласие на обработку данных.
                       </label>

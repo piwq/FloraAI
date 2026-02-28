@@ -58,11 +58,22 @@ export const TelegramConnectPage = () => {
   };
 
   useEffect(() => {
-    // Не запускаем привязку, если она уже прошла успешно
+    // Добавляем таймаут для защиты от рассинхрона состояний после регистрации
+    let timeoutId;
+
     if (isAuthenticated && telegramId && !isLinking && !linkError && !isSuccess) {
-      performLink();
+      timeoutId = setTimeout(() => {
+        performLink();
+      }, 500); // Ждем 500мс, чтобы токен авторизации точно "встал" на место
     }
-  }, [isAuthenticated, telegramId]);
+
+    // Очищаем таймаут при размонтировании компонента или изменении зависимостей
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isAuthenticated, telegramId, isLinking, linkError, isSuccess, performLink]);
 
   if (isAuthLoading) {
     return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin text-accent-ai" size={48} /></div>;
@@ -76,7 +87,7 @@ export const TelegramConnectPage = () => {
             {linkError ? 'Упс! Произошла ошибка' : 'Почти готово! 🌿'}
           </h1>
           <p className="text-text-secondary mb-4">
-            {linkError ? linkError : 'Войдите в аккаунт FloraAI, чтобы завершить привязку бота.'}
+            {linkError ? linkError : 'Войдите или зарегистрируйтесь, чтобы завершить привязку бота.'}
           </p>
 
           {linkError && (
