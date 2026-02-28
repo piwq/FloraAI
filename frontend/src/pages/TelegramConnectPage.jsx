@@ -15,29 +15,37 @@ export const TelegramConnectPage = () => {
 
   const telegramId = searchParams.get('tg_id');
 
-  const performLink = async () => {
-    if (!telegramId) {
-      setLinkError('ID телеграма не найден в ссылке. Попробуйте зайти из бота заново.');
-      return;
-    }
+    const performLink = async () => {
+      if (!telegramId) {
+        setLinkError('ID телеграма не найден в ссылке. Попробуйте зайти из бота заново.');
+        return;
+      }
 
-    setIsLinking(true);
-    setLinkError(null);
-    try {
-      await linkTelegram(telegramId);
-      toast.success('Telegram успешно привязан!');
-      navigate('/app');
-    } catch (error) {
-      const msg = error.response?.data?.error || 'Ошибка привязки аккаунта.';
-      setLinkError(msg);
-      toast.error(msg);
-    } finally {
-      setIsLinking(false);
-    }
-  };
+      setIsLinking(true);
+      setLinkError(null);
 
+      try {
+        await linkTelegram(telegramId);
+
+        toast.success('Telegram успешно привязан!');
+
+        setTimeout(() => {
+          if (window.Telegram?.WebApp) {
+            window.Telegram.WebApp.close();
+          } else {
+            navigate('/app');
+          }
+        }, 500);
+
+      } catch (error) {
+        const msg = error.response?.data?.error || 'Ошибка привязки аккаунта.';
+        setLinkError(msg);
+        toast.error(msg);
+      } finally {
+        setIsLinking(false);
+      }
+    };
   useEffect(() => {
-    // Пытаемся привязать только если авторизован, есть ID и мы еще не в процессе/ошибке
     if (isAuthenticated && telegramId && !isLinking && !linkError) {
       performLink();
     }

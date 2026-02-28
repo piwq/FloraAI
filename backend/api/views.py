@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from .models import PlantAnalysis, ChatMessage, ChatSession
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
 import json, os, urllib.request
+import requests
 
 User = get_user_model()
 
@@ -62,24 +63,28 @@ class LinkTelegramView(APIView):
 
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
+        if not telegram_id:
+            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not telegram_id or str(telegram_id).strip() == "":
-            return Response({"error": "telegram_id не получен или пуст"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            tg_id_int = int(telegram_id)
-        except (ValueError, TypeError):
-            return Response({"error": "Некорректный формат telegram_id"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 2. Проверяем уникальность ТОЛЬКО среди тех, у кого этот ID заполнен
-        if User.objects.filter(telegram_id=tg_id_int).exclude(id=request.user.id).exists():
-            return Response({"error": "Этот Telegram аккаунт уже привязан к другому профилю"},
+        # Проверка уникальности
+        if User.objects.filter(telegram_id=telegram_id).exclude(id=request.user.id).exists():
+            return Response({"error": "Этот Telegram уже привязан к другому аккаунту"},
                             status=status.HTTP_400_BAD_REQUEST)
 
         user = request.user
-        user.telegram_id = tg_id_int
+        user.telegram_id = int(telegram_id)
         user.save()
-        return Response({"status": "success", "message": f"ID {tg_id_int} успешно привязан"})
+
+        bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        if bot_token:
+            msg_text = "✅ **Аккаунт успешно привязан!**\n\nТеперь вам доступно общение с ИИ-агрономом после анализа фото. Все ваши чаты будут синхронизированы с сайтом.\n\nОжидаю ваше фото для анализа! 🌿"
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            try:
+                requests.post(url, json={"chat_id": telegram_id, "text": msg_text, "parse_mode": "Markdown"})
+            except Exception as e:
+                print(f"Ошибка отправки уведомления в ТГ: {e}")
+
+        return Response({"status": "success"})
 
 class MockSubscribeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -103,7 +108,12 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         return PlantAnalysis.objects.none()
 
     def create(self, request, *args, **kwargs):
+        is_from_bot = 'telegram_id' in request.data
         user = request.user
+
+        if not is_from_bot and user.is_authenticated and not user.is_premium:
+            if PlantAnalysis.objects.filter(user=user).count() >= 3:
+                return Response({"error": "limit_reached"}, status=403)
 
         if user.is_authenticated and not user.is_premium:
             analysis_count = PlantAnalysis.objects.filter(user=user).count()
