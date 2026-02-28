@@ -12,17 +12,17 @@ export const HeroSection = () => {
         transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
         className="font-headings text-4xl sm:text-5xl md:text-7xl font-bold text-text-primary mb-6"
       >
-        Расшифруй свои сны с помощью ИИ
+        Умный анализ растений с помощью ИИ
       </motion.h1>
-      <motion.p 
+      <motion.p
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
         className="max-w-2xl text-base sm:text-lg text-text-secondary mb-10"
       >
-        Морфеус анализирует образы вашего подсознания, чтобы дать глубокие и персонализированные инсайты.
+        FloraAI анализирует фотографии ваших культур, чтобы предоставить точные метрики роста и персональные советы по уходу от цифрового агронома.
       </motion.p>
-      
+
       <div className="flex flex-col items-center gap-4">
         <Link to="/auth">
           <motion.button
@@ -34,15 +34,15 @@ export const HeroSection = () => {
               Начать бесплатно
           </motion.button>
         </Link>
-        
+
         <motion.a
-          href="https://t.me/DreamMorpheusBot"
+          href="https://t.me/FloraAIBot"
           target="_blank"
           rel="noopener noreferrer"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, duration: 0.5 }}
-          className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+          className="flex items-center gap-2 text-text-secondary hover:text-accent-ai transition-colors"
         >
           <Send size={18} />
           Попробовать в Telegram

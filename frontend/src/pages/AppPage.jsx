@@ -15,6 +15,7 @@ export const AppPage = () => {
   const queryClient = useQueryClient();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState(null); 
+
   const deleteMutation = useMutation({
     mutationFn: deleteChatSession,
     onSuccess: () => {
