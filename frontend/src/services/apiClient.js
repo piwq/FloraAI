@@ -1,5 +1,5 @@
 import axios from 'axios';
-export const linkTelegram = (telegramId) => apiClient.post('/auth/telegram/link/', { telegram_id: telegramId });
+
 const apiClient = axios.create({
   baseURL: "/api",
 });
@@ -12,35 +12,20 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-export const registerUser = (userData) => {
-  return apiClient.post('/auth/register', {
-    username: userData.username || userData.name,
-    email: userData.email,
-    password: userData.password
-  });
-};
-
-export const loginUser = (credentials) => {
-  return apiClient.post('/auth/login', {
-    username: credentials.email,
-    password: credentials.password
-  });
-};
-
+// Авторизация и профиль
+export const registerUser = (userData) => apiClient.post('/auth/register', userData);
+export const loginUser = (credentials) => apiClient.post('/auth/login', { username: credentials.email, password: credentials.password });
 export const getUserProfile = () => apiClient.get('/auth/me');
 export const updateUserProfile = (profileData) => apiClient.put('/auth/me', profileData);
 export const changePassword = (passwordData) => apiClient.post('/auth/change-password', passwordData);
 
-// --- ЧАТ И ФОТО ---
+// Чат и фото (FloraAI)
 export const getChatSessions = () => apiClient.get('/chat/');
 export const getChatSessionDetails = (sessionId) => sessionId ? apiClient.get(`/chat/${sessionId}/`) : Promise.resolve(null);
 export const deleteChatSession = (sessionId) => apiClient.delete(`/chat/${sessionId}/`);
-export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');
 
 export const uploadPlantPhoto = (file) => {
   const formData = new FormData();
@@ -54,8 +39,12 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   return apiClient.post('/chat/', {
     message: text,
     metrics: metrics || {},
-    session_id: sessionId // Отправляем ID активного чата на бэк
+    session_id: sessionId
   });
 };
+
+// Интеграции и оплата
+export const linkTelegram = (telegramId) => apiClient.post('/auth/telegram/link/', { telegram_id: telegramId });
+export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');
 
 export default apiClient;

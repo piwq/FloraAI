@@ -100,17 +100,17 @@ const ProfilePage = () => {
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Подписка</h2>
                     <p className="text-lg">Ваш статус: <span className="font-bold text-accent-ai">{user?.subscriptionStatus}</span></p>
-                    <p className="text-text-secondary">Осталось толкований: {user?.remainingInterpretations}</p>
+                    <p className="text-text-secondary">Осталось анализов: {user?.remainingInterpretations}</p>
                     <Link to="/tariffs">
-                <button className="w-full bg-yellow-500 text-black font-bold py-2 px-4 rounded mt-4 hover:opacity-90">
+                <button className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded mt-4 hover:opacity-90">
                   Улучшить до Premium
                 </button>
               </Link>
                 </div>
             <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Интеграции</h2>
-                    <a 
-                      href="https://t.me/DreamMorpheusBot"
+                    <a
+                      href="https://t.me/FloraAIBot"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg mt-4 hover:bg-blue-600 flex items-center justify-center gap-2 transition-colors"

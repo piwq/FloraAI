@@ -5,26 +5,24 @@ import { FeaturesSection } from '../components/landing/FeaturesSection';
 import { PossibilitiesSection } from '../components/landing/PossibilitiesSection';
 import { CTASection } from '../components/landing/CTASection';
 import { Footer } from '../components/landing/Footer';
+import { AnimatedBackgroundCanvas } from '../components/AnimatedBackgroundCanvas';
 
 export const LandingPage = () => {
   return (
-    <div className="relative font-body overflow-y-auto h-screen snap-y snap-mandatory">
-      <Header />
-      <main>
-        <div className="snap-start">
+    <div className="font-body bg-background text-text-primary min-h-screen flex flex-col relative overflow-hidden">
+      <AnimatedBackgroundCanvas />
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Header />
+        <main className="flex-grow">
           <HeroSection />
-        </div>
-        <div className="snap-start">
           <FeaturesSection />
-        </div>
-        <div className="snap-start">
           <PossibilitiesSection />
-        </div>
-        <div className="snap-start">
           <CTASection />
-        </div>
-      </main>
-      <Footer />
+        </main>
+        <Footer />
+      </div>
     </div>
   );
 };
+
+export default LandingPage;

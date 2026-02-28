@@ -1,61 +1,85 @@
 import React, { useState, useRef } from 'react';
-import { Send, Paperclip } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { Send, Paperclip, X } from 'lucide-react';
 
 export const ChatInput = ({ onSendMessage, isLoading }) => {
-  const [text, setText] = useState('');
+  const [message, setMessage] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (text.trim() && !isLoading) {
-      onSendMessage(text);
-      setText('');
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file && file.type.startsWith('image/')) {
-      onSendMessage(null, file);
-    }
-    e.target.value = null; // сброс для повторной загрузки
-  };
-
-  // --- ФУНКЦИЯ CTRL+V ---
-  const handlePaste = (e) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        onSendMessage(null, file);
-        toast.success("Изображение вставлено!");
-        break;
+    if ((message.trim() || selectedFile) && !isLoading) {
+      onSendMessage(message, selectedFile);
+      setMessage('');
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
     }
   };
 
-  return (
-    <div className="px-4 sm:px-6 pb-6 pt-4 bg-background">
-      <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-surface-2 p-2 rounded-2xl border border-border-color focus-within:border-accent-ai transition-colors">
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
 
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-text-secondary hover:text-accent-ai rounded-full" disabled={isLoading}>
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const removeFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="bg-surface-2 border-t border-border-color p-4">
+      {selectedFile && (
+        <div className="mb-3 flex items-center gap-2 bg-surface-1 p-2 rounded-lg border border-accent-ai/50 max-w-fit">
+          <span className="text-sm text-text-primary truncate max-w-[200px]">{selectedFile.name}</span>
+          <button type="button" onClick={removeFile} className="text-text-secondary hover:text-red-500 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="flex items-end gap-2 max-w-4xl mx-auto relative">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="p-3 text-text-secondary hover:text-accent-ai transition-colors flex-shrink-0"
+          disabled={isLoading}
+          title="Прикрепить фото растения"
+        >
           <Paperclip size={24} />
         </button>
-        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
-
         <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={handlePaste} // Подключаем вставку
-          placeholder="Напишите сообщение или вставьте фото (Ctrl+V)..."
-          disabled={isLoading}
-          className="flex-1 bg-transparent outline-none text-text-primary placeholder:text-text-secondary py-2 px-1"
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+          accept="image/*"
         />
-
-        <button type="submit" disabled={!text.trim() || isLoading} className="p-2 rounded-full bg-accent-ai text-white disabled:opacity-50 hover:scale-105 active:scale-95 transition-transform">
-          <Send size={24} />
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Спросите агронома о вашем растении..."
+          className="flex-1 bg-surface-1 text-text-primary rounded-xl p-3 max-h-32 min-h-[50px] resize-none focus:outline-none focus:ring-1 focus:ring-accent-ai border border-border-color"
+          disabled={isLoading}
+          rows={1}
+        />
+        <button
+          type="submit"
+          disabled={isLoading || (!message.trim() && !selectedFile)}
+          className="bg-accent-ai text-white p-3 rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+        >
+          <Send size={20} />
         </button>
       </form>
     </div>
