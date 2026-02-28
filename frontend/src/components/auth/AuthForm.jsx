@@ -39,7 +39,9 @@ const AuthForm = () => {
       const loginResponse = await loginUser({ email: formData.email, password: formData.password });
       toast.success('Аккаунт успешно создан!');
       login(loginResponse.data.access);
-      navigate('/app');
+      if (window.location.pathname !== '/telegram-connect') {
+    navigate('/app');
+    }
     } catch (err) {
       const errorMsg = err.response?.data?.username?.[0] || err.response?.data?.error || 'Ошибка при регистрации. Возможно, Email уже занят.';
       toast.error(errorMsg);
@@ -61,7 +63,9 @@ const AuthForm = () => {
         const response = await loginUser({ email: formData.email, password: formData.password });
         toast.success('С возвращением!');
         login(response.data.access);
-        navigate('/app');
+        if (window.location.pathname !== '/telegram-connect') {
+            navigate('/app');
+        }
       } catch (err) {
         const errorMsg = err.response?.data?.detail || 'Неверный Email или пароль.';
         toast.error(errorMsg);

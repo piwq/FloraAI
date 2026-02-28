@@ -62,13 +62,24 @@ class LinkTelegramView(APIView):
 
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
-        if not telegram_id:
-            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
-        user = request.user
-        user.telegram_id = int(telegram_id)
-        user.save()
-        return Response({"status": "success"})
 
+        if not telegram_id or str(telegram_id).strip() == "":
+            return Response({"error": "telegram_id не получен или пуст"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            tg_id_int = int(telegram_id)
+        except (ValueError, TypeError):
+            return Response({"error": "Некорректный формат telegram_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Проверяем уникальность ТОЛЬКО среди тех, у кого этот ID заполнен
+        if User.objects.filter(telegram_id=tg_id_int).exclude(id=request.user.id).exists():
+            return Response({"error": "Этот Telegram аккаунт уже привязан к другому профилю"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        user.telegram_id = tg_id_int
+        user.save()
+        return Response({"status": "success", "message": f"ID {tg_id_int} успешно привязан"})
 
 class MockSubscribeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
