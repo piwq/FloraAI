@@ -19,7 +19,7 @@ apiClient.interceptors.request.use(
 export const registerUser = (userData) => apiClient.post('/auth/register', userData);
 export const loginUser = (credentials) => apiClient.post('/auth/login', { username: credentials.email, password: credentials.password });
 export const getUserProfile = () => apiClient.get('/auth/me');
-export const updateUserProfile = (profileData) => apiClient.put('/auth/me', profileData);
+export const updateUserProfile = (profileData) => apiClient.patch('/auth/me', profileData);
 export const changePassword = (passwordData) => apiClient.post('/auth/change-password', passwordData);
 
 // Чат и фото (FloraAI)

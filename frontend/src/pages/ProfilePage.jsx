@@ -12,6 +12,9 @@ const ProfilePage = () => {
   const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '' });
   const [isLoading, setIsLoading] = useState(true);
 
+  // Получаем сегодняшнюю дату в формате YYYY-MM-DD для ограничения максимальной даты
+  const todayDateStr = new Date().toISOString().split('T')[0];
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -35,14 +38,36 @@ const ProfilePage = () => {
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
-    const promise = updateUserProfile(formData);
+
+    // Валидация даты рождения
+    if (formData.birthDate) {
+      const selectedYear = new Date(formData.birthDate).getFullYear();
+      const selectedDate = new Date(formData.birthDate);
+      const today = new Date();
+
+      if (selectedYear < 1926) {
+        toast.error('Год рождения не может быть раньше 1926.');
+        return;
+      }
+      if (selectedDate > today) {
+        toast.error('Дата рождения не может быть в будущем.');
+        return;
+      }
+    }
+
+    const promise = updateUserProfile(formData).then(res => {
+        // Обновляем локальное состояние имени, если оно изменилось
+        setUser(prev => ({ ...prev, name: res.data.name }));
+        return res;
+    });
+
     toast.promise(promise, {
       loading: 'Сохранение...',
       success: 'Профиль успешно обновлен!',
       error: 'Ошибка при обновлении профиля.',
     });
   };
-  
+
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
     try {
@@ -56,17 +81,21 @@ const ProfilePage = () => {
 
   if (isLoading) return <div className="text-center p-8 text-4xl">Загрузка профиля...</div>;
 
+  const isPremium = user?.subscriptionStatus === 'PREMIUM';
+
   return (
     <div className="h-screen w-screen flex flex-col font-body bg-background text-text-primary">
       <Header />
       <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="max-w-4xl mx-auto"
         >
           <h1 className="font-headings text-3xl sm:text-4xl font-bold mb-8">Мой профиль</h1>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            {/* ЛЕВЫЙ БЛОК: Личные данные */}
             <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
               <h2 className="text-2xl font-semibold mb-6">Личные данные</h2>
               <form onSubmit={handleProfileUpdate} className="space-y-4">
@@ -78,47 +107,94 @@ const ProfilePage = () => {
                 </div>
                 <div>
                   <label htmlFor="name" className="text-sm text-text-secondary">Имя</label>
-                  <input type="text" id="name" name="name" value={formData.name} onChange={handleFormChange} className="w-full bg-surface-1 rounded p-2 mt-1"/>
+                  <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleFormChange}
+                    className="w-full bg-surface-1 border border-border-color focus:border-accent-ai focus:ring-1 focus:ring-accent-ai rounded-lg p-3 mt-1 outline-none transition-colors"
+                  />
                 </div>
                 <div>
                   <label htmlFor="birthDate" className="text-sm text-text-secondary">Дата рождения</label>
-                  <input type="date" id="birthDate" name="birthDate" value={formData.birthDate} onChange={handleFormChange} className="w-full bg-surface-1 rounded p-2 mt-1 text-text-secondary"/>
+                  <input
+                    type="date"
+                    id="birthDate"
+                    name="birthDate"
+                    value={formData.birthDate}
+                    onChange={handleFormChange}
+                    min="1926-01-01"
+                    max={todayDateStr}
+                    className="w-full bg-surface-1 border border-border-color focus:border-accent-ai focus:ring-1 focus:ring-accent-ai rounded-lg p-3 mt-1 text-text-primary outline-none transition-colors [color-scheme:dark]"
+                  />
                 </div>
-                <button type="submit" className="w-full bg-accent-ai text-white font-bold py-2 px-4 rounded mt-4 hover:opacity-90">Сохранить</button>
+                <button type="submit" className="w-full bg-accent-ai text-white font-bold py-3 px-4 rounded-lg mt-4 hover:opacity-90 transition-colors">
+                  Сохранить
+                </button>
               </form>
             </div>
 
+            {/* ПРАВЫЙ БЛОК: Пароль, Подписка, Интеграции */}
             <div className="space-y-8">
+
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-6">Смена пароля</h2>
                     <form onSubmit={handlePasswordUpdate} className="space-y-4">
-                        <input type="password" name="currentPassword" placeholder="Текущий пароль" value={passwordData.currentPassword} onChange={handlePasswordChange} className="w-full bg-surface-1 rounded p-2"/>
-                        <input type="password" name="newPassword" placeholder="Новый пароль" value={passwordData.newPassword} onChange={handlePasswordChange} className="w-full bg-surface-1 rounded p-2"/>
-                        <button type="submit" className="w-full border border-accent-ai text-accent-ai font-bold py-2 px-4 rounded mt-4 hover:bg-accent-ai hover:text-white transition-colors">Изменить пароль</button>
+                        <input
+                          type="password"
+                          name="currentPassword"
+                          placeholder="Текущий пароль"
+                          value={passwordData.currentPassword}
+                          onChange={handlePasswordChange}
+                          className="w-full bg-surface-1 border border-border-color focus:border-accent-ai focus:ring-1 focus:ring-accent-ai rounded-lg p-3 outline-none transition-colors"
+                        />
+                        <input
+                          type="password"
+                          name="newPassword"
+                          placeholder="Новый пароль"
+                          value={passwordData.newPassword}
+                          onChange={handlePasswordChange}
+                          className="w-full bg-surface-1 border border-border-color focus:border-accent-ai focus:ring-1 focus:ring-accent-ai rounded-lg p-3 outline-none transition-colors"
+                        />
+                        <button type="submit" className="w-full border border-accent-ai text-accent-ai font-bold py-3 px-4 rounded-lg mt-4 hover:bg-accent-ai hover:text-white transition-colors">
+                          Изменить пароль
+                        </button>
                     </form>
                 </div>
+
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Подписка</h2>
                     <p className="text-lg">Ваш статус: <span className="font-bold text-accent-ai">{user?.subscriptionStatus}</span></p>
                     <p className="text-text-secondary">Осталось анализов: {user?.remainingInterpretations}</p>
-                    <Link to="/tariffs">
-                <button className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded mt-4 hover:opacity-90">
-                  Улучшить до Premium
-                </button>
-              </Link>
+
+                    {/* Логика блокировки кнопки Premium */}
+                    {isPremium ? (
+                      <button disabled className="w-full bg-surface-1 text-text-primary font-bold py-3 px-4 rounded-lg mt-4 opacity-50 cursor-not-allowed">
+                        Вы уже Premium
+                      </button>
+                    ) : (
+                      <Link to="/tariffs">
+                        <button className="w-full bg-accent-ai text-white font-bold py-3 px-4 rounded-lg mt-4 hover:opacity-90 transition-colors">
+                          Улучшить до Premium
+                        </button>
+                      </Link>
+                    )}
                 </div>
-            <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
+
+                <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Интеграции</h2>
                     <a
                       href="https://t.me/FloraAIBot"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg mt-4 hover:bg-blue-600 flex items-center justify-center gap-2 transition-colors"
+                      className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 flex items-center justify-center gap-2 transition-colors"
                     >
                       <Send size={20}/>
                       Открыть в Telegram
                     </a>
                 </div>
+
             </div>
           </div>
         </motion.div>

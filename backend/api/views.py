@@ -1,4 +1,3 @@
-import json, os, urllib.request
 from rest_framework import viewsets, status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -6,14 +5,17 @@ from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from .models import PlantAnalysis, ChatMessage, ChatSession
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
+import json, os, urllib.request
 
 User = get_user_model()
 
-# --- 1. АВТОРИЗАЦИЯ ДЛЯ ВЕБ-САЙТА ---
+
+# --- 1. АВТОРИЗАЦИЯ И ПРОФИЛЬ ---
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
+
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
@@ -22,6 +24,39 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+    def update(self, request, *args, **kwargs):
+        # Копируем данные, чтобы можно было их изменить
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+
+        # Если юзер очистил дату, в БД пишем None
+        if data.get('birthDate') == '':
+            data['birthDate'] = None
+
+        serializer = self.get_serializer(self.get_object(), data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        current_password = request.data.get('currentPassword')
+        new_password = request.data.get('newPassword')
+
+        if not current_password or not new_password:
+            return Response({"error": "Укажите текущий и новый пароли"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(current_password):
+            return Response({"error": "Неверный текущий пароль"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+        return Response({"status": "success", "message": "Пароль успешно изменен"})
+
+
 class LinkTelegramView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -29,11 +64,20 @@ class LinkTelegramView(APIView):
         telegram_id = request.data.get('telegram_id')
         if not telegram_id:
             return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
-
         user = request.user
         user.telegram_id = int(telegram_id)
         user.save()
-        return Response({"status": "success", "message": "Telegram успешно привязан"})
+        return Response({"status": "success"})
+
+
+class MockSubscribeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        user.is_premium = True
+        user.save()
+        return Response({"status": "success", "message": "Premium подписка успешно активирована!"})
 
 
 # --- 2. АНАЛИЗ ФОТОГРАФИЙ ---

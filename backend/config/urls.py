@@ -1,11 +1,12 @@
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenObtainPairView
 from api.views import (
     ChatAPIView, PlantAnalysisViewSet, RegisterView,
-    UserProfileView, ChatDetailAPIView, LinkTelegramView, MockSubscribeView
+    UserProfileView, ChatDetailAPIView, LinkTelegramView,
+    ChangePasswordView, MockSubscribeView
 )
-from rest_framework_simplejwt.views import TokenObtainPairView
 
 router = DefaultRouter()
 router.register(r'analyses', PlantAnalysisViewSet, basename='analyses')
@@ -13,17 +14,16 @@ router.register(r'analyses', PlantAnalysisViewSet, basename='analyses')
 urlpatterns = [
     path('admin/', admin.site.urls),
 
-    # Роуты для авторизации (React)
+    # Роуты авторизации и профиля
     path('api/auth/register', RegisterView.as_view(), name='auth_register'),
     path('api/auth/login', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/me', UserProfileView.as_view(), name='auth_me'),
+    path('api/auth/change-password', ChangePasswordView.as_view(), name='change_password'),
 
-    # Роуты функционала бота и чата
+    # Роуты бота, чата и оплаты
     path('api/', include(router.urls)),
     path('api/chat/', ChatAPIView.as_view(), name='chat'),
     path('api/chat/<int:session_id>/', ChatDetailAPIView.as_view(), name='chat-detail'),
     path('api/auth/telegram/link/', LinkTelegramView.as_view(), name='link-telegram'),
-
-    # Роут для мок-оплаты
     path('api/payment/mock-subscribe', MockSubscribeView.as_view(), name='mock-subscribe'),
 ]
