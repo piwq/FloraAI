@@ -185,13 +185,10 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         return Response(response_data, status=201)
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
-# --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):
-    # Разрешаем доступ и с сайта, и от Telegram-бота
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        # Этот метод нужен фронтенду для загрузки истории чатов в сайдбар
         if not request.user.is_authenticated:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
         sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
@@ -206,12 +203,11 @@ class ChatAPIView(APIView):
     def post(self, request):
         session_id = request.data.get('session_id')
         message = request.data.get('message', '')
-        telegram_id = request.data.get('telegram_id') # Приходит от бота
+        telegram_id = request.data.get('telegram_id')
 
         if not session_id or not message:
             return Response({"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Определяем пользователя (с сайта или из ТГ)
         user = None
         if telegram_id:
             user = User.objects.filter(telegram_id=int(telegram_id)).first()
@@ -219,22 +215,18 @@ class ChatAPIView(APIView):
             user = request.user
 
         if not user:
-             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # 2. Ищем сессию чата
-        # Ищем ИМЕННО по переменной user, а не request.user, чтобы работало и в ТГ
         session = get_object_or_404(ChatSession, id=session_id, user=user)
 
-        # 3. Сохраняем сообщение пользователя
         ChatMessage.objects.create(session=session, role='user', content=message)
 
-        # 4. Вызываем Яндекс GPT
         metrics = session.analysis.metrics if session.analysis else {}
         system_prompt = (
             f"Ты — профессиональный агроном FloraAI. Данные растения: "
             f"Культура: {metrics.get('plant_type', 'Неизвестно')}, "
             f"Площадь листьев: {metrics.get('leaf_area_cm2', '0')} см2. "
-            f"Отвечай кратко и давай советы по уходу."
+            f"Отвечай кратко, экспертно и давай полезные советы по уходу."
         )
 
         api_key = os.getenv("YANDEX_API_KEY")
@@ -245,19 +237,30 @@ class ChatAPIView(APIView):
             ChatMessage.objects.create(session=session, role='assistant', content=answer)
             return Response({"reply": answer, "session_id": session.id})
 
+        past_messages = ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]
+        past_messages = reversed(past_messages)
+
+        yandex_messages = [{"role": "system", "text": system_prompt}]
+        for msg in past_messages:
+            yandex_messages.append({"role": msg.role, "text": msg.content})
+
         url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
         headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {api_key}"}
         data = {
             "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
             "completionOptions": {"temperature": 0.3, "maxTokens": 1000},
-            "messages": [{"role": "system", "text": system_prompt}, {"role": "user", "text": message}]
+            "messages": yandex_messages
         }
 
         try:
+            import urllib.request
+            import json
             req = urllib.request.Request(url, headers=headers, data=json.dumps(data).encode())
             with urllib.request.urlopen(req) as res:
                 response_json = json.loads(res.read())
                 answer = response_json['result']['alternatives'][0]['message']['text']
+
+                # Сохраняем ответ ИИ
                 ChatMessage.objects.create(session=session, role='assistant', content=answer)
                 return Response({"reply": answer, "session_id": session.id})
         except Exception as e:
