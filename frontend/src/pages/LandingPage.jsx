@@ -9,7 +9,7 @@ import { AnimatedBackgroundCanvas } from '../components/AnimatedBackgroundCanvas
 
 export const LandingPage = () => {
   return (
-    <div className="font-body bg-background text-text-primary min-h-screen flex flex-col relative overflow-hidden">
+    <div className="font-body bg-background text-text-primary min-h-screen flex flex-col relative overflow-x-hidden">
       <AnimatedBackgroundCanvas />
       <div className="relative z-10 flex flex-col min-h-screen">
         <Header />

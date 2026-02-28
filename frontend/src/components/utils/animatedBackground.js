@@ -1,131 +1,76 @@
-class Particle {
-  constructor(x, y, radius, color, velocity, canvasWidth, canvasHeight) {
-    this.x = x;
-    this.y = y;
-    this.originX = x;
-    this.originY = y;
-    this.radius = radius;
-    this.color = color;
-    this.velocity = velocity;
-    this.canvasWidth = canvasWidth;
-    this.canvasHeight = canvasHeight;
-  }
-
-  draw(context) {
-    context.beginPath();
-    context.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
-    context.fillStyle = this.color;
-    context.fill();
-  }
-
-  update(mouse) {
-    const dxMouse = this.x - mouse.x;
-    const dyMouse = this.y - mouse.y;
-    const distanceMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
-    const maxDistance = mouse.radius;
-
-
-    if (distanceMouse < maxDistance) {
-      const forceDirectionX = dxMouse / distanceMouse;
-      const forceDirectionY = dyMouse / distanceMouse;
-
-      const force = (maxDistance - distanceMouse) / maxDistance;
-      const pushSpeed = 3;
-      
-      this.x += forceDirectionX * force * pushSpeed;
-      this.y += forceDirectionY * force * pushSpeed;
-    } else {
-      if (this.x !== this.originX) {
-        const dxOrigin = this.x - this.originX;
-        this.x -= dxOrigin / 20; 
-      }
-      if (this.y !== this.originY) {
-        const dyOrigin = this.y - this.originY;
-        this.y -= dyOrigin / 20;
-      }
-    }
-
-    this.x += this.velocity.x;
-    this.y += this.velocity.y;
-
-    if (this.x - this.radius < 0 || this.x + this.radius > this.canvasWidth) {
-      this.velocity.x *= -1; 
-    }
-    if (this.y - this.radius < 0 || this.y + this.radius > this.canvasHeight) {
-      this.velocity.y *= -1; 
-    }
-  }
-}
-
 export class AnimatedBackground {
   constructor(canvas) {
     this.canvas = canvas;
-    this.context = canvas.getContext('2d');
+    this.ctx = canvas.getContext('2d');
     this.particles = [];
-    this.mouse = {
-      x: undefined,
-      y: undefined,
-      radius: 150, 
-    };
     this.animationFrameId = null;
-
-    this.resizeCanvas();
-    window.addEventListener('resize', this.resizeCanvas.bind(this));
-    window.addEventListener('mousemove', this.updateMousePosition.bind(this));
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
   }
 
-  resizeCanvas() {
+  resize() {
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
-    this.createParticles();
+    this.initParticles();
   }
 
-  createParticles() {
+  initParticles() {
     this.particles = [];
-    const numberOfParticles = (this.canvas.width * this.canvas.height) / 9000;
-    
-    for (let i = 0; i < numberOfParticles; i++) {
-      const size = Math.random() * 2 + 0.5; 
-      const x = Math.random() * this.canvas.width;
-      const y = Math.random() * this.canvas.height;
-      const velocity = {
-        x: (Math.random() - 0.5) * 0.2,
-        y: (Math.random() - 0.5) * 0.2,
-      };
-      const color = `rgba(163, 161, 185, ${Math.random() * 0.5 + 0.2})`;
-      
-      this.particles.push(new Particle(x, y, size, color, velocity, this.canvas.width, this.canvas.height));
+    // Количество частиц зависит от размера экрана
+    const numParticles = Math.floor((this.canvas.width * this.canvas.height) / 12000);
+    for (let i = 0; i < numParticles; i++) {
+      this.particles.push({
+        x: Math.random() * this.canvas.width,
+        y: Math.random() * this.canvas.height,
+        radius: Math.random() * 2 + 0.5,
+        vx: (Math.random() - 0.5) * 0.3, // Медленное движение (пыльца)
+        vy: (Math.random() - 0.5) * 0.3,
+        alpha: Math.random() * 0.5 + 0.1,
+      });
     }
   }
 
-  updateMousePosition(event) {
-    this.mouse.x = event.x;
-    this.mouse.y = event.y;
-  }
+  draw() {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-  animate() {
-    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Мягкий градиент (от темно-синего/зеленого к черному)
+    const gradient = this.ctx.createRadialGradient(
+      this.canvas.width / 2, this.canvas.height / 2, 0,
+      this.canvas.width / 2, this.canvas.height / 2, this.canvas.width
+    );
+    gradient.addColorStop(0, '#0f172a'); // Центр (surface-2)
+    gradient.addColorStop(1, '#020617'); // Края (очень темный)
 
+    this.ctx.fillStyle = gradient;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Рисуем зеленые частицы
     this.particles.forEach(p => {
-      p.update(this.mouse);
-      p.draw(this.context);
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Отскок от краев экрана
+      if (p.x < 0 || p.x > this.canvas.width) p.vx *= -1;
+      if (p.y < 0 || p.y > this.canvas.height) p.vy *= -1;
+
+      this.ctx.beginPath();
+      this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      // Цвет accent-ai: #22c55e с прозрачностью
+      this.ctx.fillStyle = `rgba(34, 197, 94, ${p.alpha})`;
+      this.ctx.fill();
     });
 
-    this.animationFrameId = requestAnimationFrame(this.animate.bind(this));
+    this.animationFrameId = requestAnimationFrame(() => this.draw());
   }
 
   start() {
-    if (!this.animationFrameId) {
-      this.animate();
-    }
+    this.initParticles();
+    this.draw();
   }
 
   stop() {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
     }
-    window.removeEventListener('resize', this.resizeCanvas);
-    window.removeEventListener('mousemove', this.updateMousePosition);
   }
 }
