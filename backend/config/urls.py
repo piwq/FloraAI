@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from api.views import (
     ChatAPIView, PlantAnalysisViewSet, RegisterView,
     UserProfileView, ChatDetailAPIView, LinkTelegramView,
-    ChangePasswordView, MockSubscribeView, BotProfileView
+    ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView
 )
 
 router = DefaultRouter()
@@ -27,4 +27,5 @@ urlpatterns = [
     path('api/auth/telegram/link/', LinkTelegramView.as_view(), name='link-telegram'),
     path('api/payment/mock-subscribe', MockSubscribeView.as_view(), name='mock-subscribe'),
     path('api/bot/profile/', BotProfileView.as_view(), name='bot-profile'),
+    path('api/bot/history/', BotHistoryView.as_view(), name='bot-history'),
 ]

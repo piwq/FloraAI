@@ -1,11 +1,11 @@
 import os
 import re
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, CallbackQuery
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from app.services.api_client import upload_photo_to_api, send_chat_message_to_api, get_bot_profile
+from app.services.api_client import upload_photo_to_api, send_chat_message_to_api, get_bot_profile, get_bot_history
 
 router = Router()
 
@@ -107,6 +107,45 @@ async def cmd_me(message: Message, state: FSMContext):
     )
     await message.answer(text, parse_mode="HTML")
 
+@router.message(Command("history"))
+async def cmd_history(message: Message, state: FSMContext):
+    data = await get_bot_history(message.from_user.id)
+
+    if not data or not data.get('history'):
+        await message.answer("📭 <b>У вас пока нет сохраненной истории.</b>\n\nОтправьте фото первого растения!",
+                             parse_mode="HTML")
+        return
+
+    history = data['history']
+
+    buttons = []
+    for item in history:
+        buttons.append([InlineKeyboardButton(
+            text=f"🌿 {item['title']} ({item['date']})",
+            callback_data=f"session_{item['id']}"  # Вшиваем ID сессии в кнопку
+        )])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await message.answer(
+        "📚 <b>Ваша история анализов</b>\n\nВыберите растение, чтобы продолжить диалог с агрономом:",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("session_"))
+async def process_session_selection(callback: CallbackQuery, state: FSMContext):
+    session_id = callback.data.split("_")[1]
+
+    await state.update_data(session_id=session_id)
+    await state.set_state(ChatStates.active_chat)
+
+    await callback.message.answer(
+        "✅ <b>Чат переключен!</b>\n\nВы вернулись к старому анализу. Теперь ваши сообщения отправляются в контекст этого растения.",
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 @router.message(F.photo)
 async def handle_photo(message: Message, state: FSMContext):
@@ -171,7 +210,6 @@ async def handle_text(message: Message, state: FSMContext):
     )
 
     if status == 200:
-        # ПРИМЕНЯЕМ КОНВЕРТЕР К ТЕКСТОВОМУ ОТВЕТУ
         raw_reply = data.get('reply', '...')
         formatted_reply = format_llm_to_html(raw_reply)
         await message.answer(formatted_reply, parse_mode="HTML")

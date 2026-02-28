@@ -35,3 +35,13 @@ async def get_bot_profile(telegram_id: int):
         except Exception as e:
             print(f"Ошибка получения профиля: {e}")
         return None
+
+async def get_bot_history(telegram_id: int):
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"{API_URL}/bot/history/?telegram_id={telegram_id}") as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            print(f"Ошибка получения истории: {e}")
+        return None

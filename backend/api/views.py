@@ -310,3 +310,31 @@ class BotProfileView(APIView):
             "subscription": "PREMIUM" if user.is_premium else "FREE",
             "analyses_count": analyses_count
         })
+
+class BotHistoryView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        tg_id = request.query_params.get('telegram_id')
+        if not tg_id:
+            return Response({"error": "Missing telegram_id"}, status=400)
+
+        user = User.objects.filter(telegram_id=tg_id).first()
+        if not user or not user.email:
+            return Response({"history": []})
+
+        sessions = ChatSession.objects.filter(user=user).order_by('-created_at')[:5]
+
+        history = []
+        for s in sessions:
+            plant_name = "Неизвестное растение"
+            if s.analysis and s.analysis.metrics and 'plant_type' in s.analysis.metrics:
+                plant_name = s.analysis.metrics['plant_type']
+
+            history.append({
+                "id": str(s.id),
+                "title": plant_name,
+                "date": s.created_at.strftime("%d.%m")
+            })
+
+        return Response({"history": history})
