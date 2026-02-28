@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle } from 'lucide-react';
 import { linkTelegram } from '@/services/apiClient';
 import { useAuth } from '@/context/AuthContext';
 import AuthForm from '@/components/auth/AuthForm';
@@ -11,50 +11,55 @@ export const TelegramConnectPage = () => {
   const navigate = useNavigate();
   const { isAuthenticated, logout, isLoading: isAuthLoading } = useAuth();
   const [isLinking, setIsLinking] = useState(false);
-  const [linkError, setLinkError] = useState(null); // Состояние для хранения ошибки
+  const [linkError, setLinkError] = useState(null);
+  const [isSuccess, setIsSuccess] = useState(false); // НОВОЕ СОСТОЯНИЕ УСПЕХА
 
   const telegramId = searchParams.get('tg_id');
   const messageId = searchParams.get('msg_id');
 
-    const performLink = async () => {
-      if (!telegramId) {
-        setLinkError('ID телеграма не найден в ссылке. Попробуйте зайти из бота заново.');
-        return;
-      }
+  const performLink = async () => {
+    if (!telegramId) {
+      setLinkError('ID телеграма не найден в ссылке. Попробуйте зайти из бота заново.');
+      return;
+    }
 
-      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-      const username = tgUser?.username || tgUser?.first_name || 'Пользователь';
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const username = tgUser?.username || tgUser?.first_name || 'Пользователь';
 
-      setIsLinking(true);
-      setLinkError(null);
+    setIsLinking(true);
+    setLinkError(null);
 
-      try {
-        await linkTelegram({
-          telegram_id: telegramId,
-          username: username
-        });
+    try {
+      await linkTelegram({
+        telegram_id: telegramId,
+        username: username,
+        message_id: messageId
+      });
 
-        toast.success('Telegram успешно привязан!');
+      setIsSuccess(true); // Включаем экран успеха
+      toast.success('Telegram успешно привязан!');
 
-        setTimeout(() => {
-          if (window.Telegram?.WebApp) {
-            window.Telegram.WebApp.close();
-          } else {
-            navigate('/app');
-          }
-        }, 1000);
+      setTimeout(() => {
+        // Усиленная проверка на то, открыто ли это как Mini App
+        if (window.Telegram?.WebApp?.initData) {
+          window.Telegram.WebApp.close();
+        } else {
+          navigate('/app');
+        }
+      }, 2000);
 
-      } catch (error) {
-        const msg = error.response?.data?.error || 'Ошибка привязки аккаунта.';
-        setLinkError(msg);
-        toast.error(msg);
-      } finally {
-        setIsLinking(false);
-      }
-    };
+    } catch (error) {
+      const msg = error.response?.data?.error || 'Ошибка привязки аккаунта.';
+      setLinkError(msg);
+      toast.error(msg);
+    } finally {
+      setIsLinking(false);
+    }
+  };
 
   useEffect(() => {
-    if (isAuthenticated && telegramId && !isLinking && !linkError) {
+    // Не запускаем привязку, если она уже прошла успешно
+    if (isAuthenticated && telegramId && !isLinking && !linkError && !isSuccess) {
       performLink();
     }
   }, [isAuthenticated, telegramId]);
@@ -89,6 +94,20 @@ export const TelegramConnectPage = () => {
     );
   }
 
+  // --- НОВЫЙ ЭКРАН УСПЕХА ---
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+        <div className="bg-surface-1 p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-border-color">
+          <CheckCircle className="mx-auto text-green-500 mb-6" size={64} />
+          <h1 className="text-2xl font-bold text-text-primary mb-2 font-headings">Готово!</h1>
+          <p className="text-text-secondary text-sm">Ваш аккаунт привязан. Можете вернуться в диалог с ботом.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Экран загрузки самой привязки
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="bg-surface-1 p-8 rounded-2xl shadow-xl max-w-md w-full text-center border border-border-color">

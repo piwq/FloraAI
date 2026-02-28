@@ -1,5 +1,5 @@
 import os
-import io
+import re
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import CommandStart, Command
@@ -9,10 +9,11 @@ from app.services.api_client import upload_photo_to_api, send_chat_message_to_ap
 
 router = Router()
 
+
 class ChatStates(StatesGroup):
     active_chat = State()
 
-# ДОБАВЛЯЕМ ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ ДЛЯ msg_id (= 0)
+
 def get_webapp_keyboard(tg_id: int, msg_id: int = 0):
     webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -21,6 +22,7 @@ def get_webapp_keyboard(tg_id: int, msg_id: int = 0):
             web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}&msg_id={msg_id}")
         )]
     ])
+
 
 def get_premium_keyboard():
     webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
@@ -32,6 +34,30 @@ def get_premium_keyboard():
     ])
 
 
+# НОВАЯ ФУНКЦИЯ: Конвертер Markdown -> HTML
+def format_llm_to_html(text: str) -> str:
+    """Безопасная конвертация Markdown от нейросети в HTML для Telegram"""
+    if not text:
+        return ""
+
+    # 1. Экранируем опасные для HTML символы
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # 2. Выделяем жирный текст (**текст** -> <b>текст</b>)
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
+
+    # 3. Выделяем курсив (*текст* -> <i>текст</i>)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text, flags=re.DOTALL)
+
+    # 4. Заголовки (### Заголовок -> <b>Заголовок</b>)
+    text = re.sub(r'^#{1,6}\s+(.*)', r'<b>\1</b>', text, flags=re.MULTILINE)
+
+    # 5. Маркированные списки (заменяем тире на красивые точки)
+    text = re.sub(r'^\s*[\-\*]\s+', r'• ', text, flags=re.MULTILINE)
+
+    return text
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -39,37 +65,33 @@ async def cmd_start(message: Message, state: FSMContext):
     profile = await get_bot_profile(message.from_user.id)
     if profile and profile.get('is_linked'):
         text = (
-            "🌿 **С возвращением в FloraAI!**\n\n"
+            "🌿 <b>С возвращением в FloraAI!</b>\n\n"
             "📸 Отправьте фото растения для получения анализа.\n"
             "💬 После анализа вы можете обсудить результат с ИИ-агрономом.\n\n"
             "👤 Для просмотра профиля используйте /me"
         )
-        await message.answer(text)
+        await message.answer(text, parse_mode="HTML")
         return
 
     text = (
         "Привет! Я FloraAI — твой ИИ-агроном. 🌿\n\n"
-        "📸 **Просто отправь фото растения**, чтобы получить моментальный анализ.\n\n"
-        "🔗 Чтобы задавать вопросы ИИ после анализа, **привяжи свой аккаунт**:"
+        "📸 <b>Просто отправь фото растения</b>, чтобы получить моментальный анализ.\n\n"
+        "🔗 Чтобы задавать вопросы ИИ после анализа, <b>привяжи свой аккаунт</b>:"
     )
-    sent_msg = await message.answer(text)
-    # Здесь передаем msg_id
+    sent_msg = await message.answer(text, parse_mode="HTML")
     await sent_msg.edit_reply_markup(reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))
 
 
-# ПЕРЕНОСИМ /me ВЫШЕ, ЧТОБЫ ОНА ПЕРЕХВАТЫВАЛАСЬ ПЕРВОЙ
-# Добавляем state="*", чтобы команда работала даже во время чата
 @router.message(Command("me", "profile"))
 async def cmd_me(message: Message, state: FSMContext):
     profile = await get_bot_profile(message.from_user.id)
 
     if not profile or not profile.get('is_linked'):
         text = (
-            "⚠️ **Ваш аккаунт не привязан!**\n\n"
-            "Привяжите профиль через команду /start, чтобы открыть доступ к чату с ИИ и сохранять историю."
+            "⚠️ <b>Ваш аккаунт не привязан!</b>\n\n"
+            "Привяжите профиль через кнопку ниже, чтобы открыть доступ к чату с ИИ и сохранять историю."
         )
-        sent_msg = await message.answer(text)
-        # Здесь передаем msg_id
+        sent_msg = await message.answer(text, parse_mode="HTML")
         await sent_msg.edit_reply_markup(reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))
         return
 
@@ -77,13 +99,13 @@ async def cmd_me(message: Message, state: FSMContext):
     analyses = profile.get('analyses_count', 0)
 
     text = (
-        f"👤 **Профиль FloraAI**\n\n"
-        f"📧 Email: `{profile.get('email')}`\n"
-        f"⭐ Тариф: **{sub}**\n"
-        f"📊 Анализов сделано: **{analyses}**\n\n"
+        f"👤 <b>Профиль FloraAI</b>\n\n"
+        f"📧 Email: <code>{profile.get('email')}</code>\n"
+        f"⭐ Тариф: <b>{sub}</b>\n"
+        f"📊 Анализов сделано: <b>{analyses}</b>\n\n"
         f"Отправьте фото, чтобы начать новый анализ! 🌿"
     )
-    await message.answer(text, parse_mode="Markdown")
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(F.photo)
@@ -103,7 +125,10 @@ async def handle_photo(message: Message, state: FSMContext):
     await wait_msg.delete()
 
     if status == 201:
-        await message.answer(data.get('bot_reply', '✅ Анализ готов!'))
+        # ПРИМЕНЯЕМ КОНВЕРТЕР К ОТВЕТУ С ФОТО
+        raw_reply = data.get('bot_reply', '✅ Анализ готов!')
+        formatted_reply = format_llm_to_html(raw_reply)
+        await message.answer(formatted_reply, parse_mode="HTML")
 
         session_id = data.get('session_id')
         is_linked = data.get('is_linked', False)
@@ -111,18 +136,19 @@ async def handle_photo(message: Message, state: FSMContext):
         if is_linked and session_id:
             await state.update_data(session_id=session_id)
             await state.set_state(ChatStates.active_chat)
-            await message.answer("✍️ Вы можете задать уточняющий вопрос агроному.")
+            await message.answer("✍️ Вы можете задать уточняющий вопрос агроному.", parse_mode="HTML")
         else:
             await state.clear()
             text = "💡 Чтобы обсудить этот анализ с ИИ и сохранять историю, привяжите аккаунт!"
-            sent_msg = await message.answer(text)
-            # Здесь передаем msg_id
-            await sent_msg.edit_reply_markup(reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))
+            sent_msg = await message.answer(text, parse_mode="HTML")
+            await sent_msg.edit_reply_markup(
+                reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))
 
     elif status == 403:
         await message.answer(
-            "🚫 **Лимит анализов исчерпан.**\n\nДля безлимитной загрузки фото перейдите на Premium тариф.",
-            reply_markup=get_premium_keyboard()
+            "🚫 <b>Лимит анализов исчерпан.</b>\n\nДля безлимитной загрузки фото перейдите на Premium тариф.",
+            reply_markup=get_premium_keyboard(),
+            parse_mode="HTML"
         )
     else:
         await message.answer("❌ Произошла ошибка на сервере. Попробуйте позже.")
@@ -145,7 +171,10 @@ async def handle_text(message: Message, state: FSMContext):
     )
 
     if status == 200:
-        await message.answer(data.get('reply', '...'))
+        # ПРИМЕНЯЕМ КОНВЕРТЕР К ТЕКСТОВОМУ ОТВЕТУ
+        raw_reply = data.get('reply', '...')
+        formatted_reply = format_llm_to_html(raw_reply)
+        await message.answer(formatted_reply, parse_mode="HTML")
     else:
         await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить фото заново.")
 
@@ -153,9 +182,9 @@ async def handle_text(message: Message, state: FSMContext):
 @router.message(F.text)
 async def handle_text_no_session(message: Message):
     text = (
-        "⚠️ **Чат недоступен.**\n\n"
-        "Чтобы начать общение с ИИ, сначала **отправьте фото растения**.\n"
+        "⚠️ <b>Чат недоступен.</b>\n\n"
+        "Чтобы начать общение с ИИ, сначала <b>отправьте фото растения</b>.\n"
         "Если вы уже отправили фото, но не можете писать — убедитесь, что ваш аккаунт привязан."
     )
-    sent_msg = await message.answer(text)
+    sent_msg = await message.answer(text, parse_mode="HTML")
     await sent_msg.edit_reply_markup(reply_markup=get_webapp_keyboard(message.from_user.id, sent_msg.message_id))

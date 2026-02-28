@@ -65,7 +65,7 @@ class LinkTelegramView(APIView):
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
         username = request.data.get('username')
-        message_id = request.data.get('message_id') # ПОЛУЧАЕМ ID СООБЩЕНИЯ
+        message_id = request.data.get('message_id')
 
         if not telegram_id:
             return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
@@ -89,27 +89,27 @@ class LinkTelegramView(APIView):
         user.telegram_username = username
         user.save()
 
+        # ОТПРАВЛЯЕМ НОВУЮ ИНСТРУКЦИЮ В БОТ (ИСПРАВЛЕНО ФОРМАТИРОВАНИЕ)
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if bot_token:
             import requests
-            # 1. УДАЛЯЕМ СТАРОЕ СООБЩЕНИЕ С КНОПКОЙ
             if message_id:
                 try:
                     requests.post(f"https://api.telegram.org/bot{bot_token}/deleteMessage",
-                                  json={"chat_id": tg_id_int, "message_id": int(message_id)})
+                                  json={"chat_id": tg_id_int, "message_id": int(message_id)}, timeout=5)
                 except Exception:
                     pass
 
-            # 2. ОТПРАВЛЯЕМ НОВУЮ ИНСТРУКЦИЮ
             msg = (
-                "🤝 **Профиль FloraAI успешно привязан!**\n\n"
+                "🤝 <b>Профиль FloraAI успешно привязан!</b>\n\n"
                 "📸 Отправьте фото растения для анализа.\n"
                 "💬 После анализа вы сможете задать вопросы агроному.\n\n"
                 "👤 Используйте команду /me для просмотра профиля."
             )
             try:
+                # ВАЖНО: parse_mode изменен на HTML
                 requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                              json={"chat_id": tg_id_int, "text": msg, "parse_mode": "Markdown"})
+                              json={"chat_id": tg_id_int, "text": msg, "parse_mode": "HTML"}, timeout=5)
             except Exception:
                 pass
 
