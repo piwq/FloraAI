@@ -8,25 +8,17 @@ export const ChatWindow = ({ chatLogic }) => {
   const { messages, isLoading, isHistoryLoading, sendMessage } = chatLogic;
   const messagesEndRef = useRef(null);
 
-  const isNewChat = messages.length === 0; // Проверяем, пустой ли это чат
+  const isNewChat = messages.length === 0;
 
   const EmptyState = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center p-8">
-      <Sprout size={64} className="text-accent-ai/80 mb-4"/>
-      <h2 className="font-headings text-3xl font-bold mb-2">Добро пожаловать в FloraAI</h2>
-      <p className="text-text-secondary max-w-md mb-8">
-        Загрузите фото растения для анализа, чтобы начать диалог с нашим ИИ-агрономом.
-      </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md w-full">
-          <div className="bg-surface-2 p-3 rounded-lg text-sm text-text-primary text-left border border-border-color/50">
-            <p className="font-bold text-accent-ai">Анализ рукколы</p>
-            <p className="text-xs text-text-secondary mt-1">"Измерь площадь листьев и длину корня..."</p>
-          </div>
-          <div className="bg-surface-2 p-3 rounded-lg text-sm text-text-primary text-left border border-border-color/50">
-            <p className="font-bold text-accent-ai">Советы по уходу</p>
-            <p className="text-xs text-text-secondary mt-1">"Как часто нужно поливать пшеницу?"</p>
-          </div>
+    <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fade-in-down">
+      <div className="w-24 h-24 bg-accent-ai/10 rounded-full flex items-center justify-center mb-6">
+        <Sprout size={48} className="text-accent-ai"/>
       </div>
+      <h2 className="font-headings text-3xl font-bold mb-3">Ваш цифровой Агроном</h2>
+      <p className="text-text-secondary max-w-md text-lg">
+        Загрузите фотографию растения ниже, чтобы получить анализ метрик роста и персональные рекомендации по уходу.
+      </p>
     </div>
   );
 
@@ -57,10 +49,11 @@ export const ChatWindow = ({ chatLogic }) => {
           </div>
         )}
       </div>
+
       <ChatInput
         onSendMessage={sendMessage}
         isLoading={isLoading || isHistoryLoading}
-        requirePhotoFirst={isNewChat} // Передаем флаг блокировки текста
+        requirePhotoFirst={isNewChat}
       />
     </div>
   );

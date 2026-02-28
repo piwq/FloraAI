@@ -1,3 +1,4 @@
+import os
 import io
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -14,11 +15,23 @@ class ChatStates(StatesGroup):
 
 
 def get_webapp_keyboard(tg_id: int):
-    # Замени URL на свой домен или ngrok, чтобы Web App открывал твой сайт
+    # Получаем ссылку из .env файла (по умолчанию ставим заглушку с https, чтобы не падало)
+    webapp_url = os.getenv('WEBAPP_URL', 'https://google.com')
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="🌿 Открыть профиль на сайте",
-            web_app=WebAppInfo(url=f"google.com")
+            web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}")
+        )]
+    ])
+
+
+def get_premium_keyboard():
+    webapp_url = os.getenv('WEBAPP_URL', 'https://google.com')
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💎 Оформить Premium",
+            web_app=WebAppInfo(url=f"{webapp_url}/tariffs")
         )]
     ])
 
@@ -31,12 +44,13 @@ async def cmd_start(message: Message, state: FSMContext):
         "Чтобы начать новый чат и получить анализ растения, **отправьте мне фотографию**.\n\n"
         "Вы можете привязать этот бот к своему профилю на сайте, нажав кнопку ниже."
     )
+    # Если здесь будет ошибка, бот упадет, но теперь мы передаем https-ссылку
     await message.answer(text, reply_markup=get_webapp_keyboard(message.from_user.id))
 
 
 @router.message(F.photo)
 async def handle_photo(message: Message, state: FSMContext):
-    await message.answer("Фото получено. Выполняю анализ, подождите немного... ⏳")
+    msg = await message.answer("Фото получено. Выполняю анализ, подождите немного... ⏳")
 
     # Скачиваем фото в память
     photo = message.photo[-1]
@@ -50,6 +64,8 @@ async def handle_photo(message: Message, state: FSMContext):
         filename="plant.jpg"
     )
 
+    await msg.delete()  # Удаляем старое сообщение
+
     if status == 201:
         session_id = data.get('session_id')
         bot_reply = data.get('bot_reply', 'Анализ завершен!')
@@ -59,6 +75,13 @@ async def handle_photo(message: Message, state: FSMContext):
         await state.set_state(ChatStates.active_chat)
 
         await message.answer(bot_reply)
+    elif status == 403 and data.get('error') == 'limit_reached':
+        # --- ОБРАБАТЫВАЕМ ЛИМИТ ФОТО ДЛЯ БЕСПЛАТНЫХ ПОЛЬЗОВАТЕЛЕЙ ---
+        await message.answer(
+            "🚫 **Лимит бесплатных анализов исчерпан (3/3).**\n\n"
+            "Чтобы продолжить загружать новые фотографии, оформите Premium подписку на нашем сайте.",
+            reply_markup=get_premium_keyboard()
+        )
     else:
         await message.answer("Произошла ошибка при анализе фото. Попробуйте еще раз.")
 
@@ -72,8 +95,6 @@ async def handle_text(message: Message, state: FSMContext):
         await message.answer("⚠️ Сначала отправьте фотографию растения, чтобы начать новый чат!")
         return
 
-    # Если есть активный чат, отправляем сообщение в Django
-    # await message.answer("Думаю...") # Можно добавить эффект набора текста
     data, status = await send_chat_message_to_api(
         telegram_id=message.from_user.id,
         message=message.text,
@@ -82,5 +103,8 @@ async def handle_text(message: Message, state: FSMContext):
 
     if status == 200:
         await message.answer(data.get('reply', '...'))
+    elif status == 403:
+        await message.answer("🚫 У вас нет доступа к этому чату, или лимит исчерпан.",
+                             reply_markup=get_premium_keyboard())
     else:
         await message.answer(data.get('error', 'Произошла ошибка связи с нейросетью.'))
