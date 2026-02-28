@@ -58,31 +58,50 @@ class ChangePasswordView(APIView):
         return Response({"status": "success", "message": "Пароль успешно изменен"})
 
 
+
 class LinkTelegramView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
-        telegram_username = request.data.get('username') # Получаем ник из фронта
+        username = request.data.get('username')
 
         if not telegram_id:
-            return Response({"error": "ID обязателен"}, status=400)
+            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Проверка на дубликаты
-        if User.objects.filter(telegram_id=telegram_id).exclude(id=request.user.id).exists():
-            return Response({"error": "Этот аккаунт уже привязан к другому профилю"}, status=400)
+        try:
+            tg_id_int = int(telegram_id)
+        except ValueError:
+            return Response({"error": "Некорректный ID"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Умная проверка дубликатов
+        existing_user = User.objects.filter(telegram_id=tg_id_int).exclude(id=request.user.id).first()
+        if existing_user:
+            if not existing_user.email:
+                # Если это бот-пустышка (вы тестировали бот до авторизации на сайте)
+                # Переносим его историю на ваш профиль и удаляем пустышку
+                PlantAnalysis.objects.filter(user=existing_user).update(user=request.user)
+                ChatSession.objects.filter(user=existing_user).update(user=request.user)
+                existing_user.delete()
+            else:
+                return Response({"error": "Этот Telegram уже привязан к другому профилю"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Привязываем данные к текущему пользователю
         user = request.user
-        user.telegram_id = telegram_id
-        user.telegram_username = telegram_username
+        user.telegram_id = tg_id_int
+        user.telegram_username = username  # Сохраняем никнейм для фронтенда!
         user.save()
 
-        # Отправка уведомления в бот
+        # Отправляем уведомление в бот
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if bot_token:
-            msg = f"🤝 **Профиль FloraAI успешно привязан!**\n\nТеперь ваша история синхронизирована. Вам доступно общение с ИИ после каждого анализа.\n\n⚠️ Внимание: теперь действуют правила вашего тарифа (3 бесплатных анализа)."
-            requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                          json={"chat_id": telegram_id, "text": msg, "parse_mode": "Markdown"})
+            msg = f"🤝 **Профиль FloraAI успешно привязан!**\n\nТеперь ваша история синхронизирована. Вам доступно общение с ИИ после каждого анализа."
+            try:
+                import requests
+                requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                              json={"chat_id": tg_id_int, "text": msg, "parse_mode": "Markdown"})
+            except Exception:
+                pass
 
         return Response({"status": "success"})
 
@@ -156,10 +175,13 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         return Response(response_data, status=201)
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
+# --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):
+    # Разрешаем доступ и с сайта, и от Telegram-бота
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
+        # Этот метод нужен фронтенду для загрузки истории чатов в сайдбар
         if not request.user.is_authenticated:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
         sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
@@ -172,26 +194,31 @@ class ChatAPIView(APIView):
         ])
 
     def post(self, request):
-        user = request.user
-        telegram_id = request.data.get('telegram_id')
-
-        if not user.is_authenticated:
-            if telegram_id:
-                user = get_object_or_404(User, telegram_id=int(telegram_id))
-            else:
-                return Response({"error": "Требуется авторизация"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        user_message = request.data.get('message', '')
         session_id = request.data.get('session_id')
+        message = request.data.get('message', '')
+        telegram_id = request.data.get('telegram_id') # Приходит от бота
 
-        # Теперь текстовое сообщение без session_id (без фото) отправить нельзя
-        if not session_id:
-            return Response({"error": "Чат можно начать только с отправки фото."}, status=status.HTTP_400_BAD_REQUEST)
+        if not session_id or not message:
+            return Response({"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
-        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
-        ChatMessage.objects.create(session=session, role='user', content=user_message)
+        # 1. Определяем пользователя (с сайта или из ТГ)
+        user = None
+        if telegram_id:
+            user = User.objects.filter(telegram_id=int(telegram_id)).first()
+        elif request.user.is_authenticated:
+            user = request.user
 
-        # Берем метрики напрямую из базы, фронтенду больше не нужно их присылать!
+        if not user:
+             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Ищем сессию чата
+        # Ищем ИМЕННО по переменной user, а не request.user, чтобы работало и в ТГ
+        session = get_object_or_404(ChatSession, id=session_id, user=user)
+
+        # 3. Сохраняем сообщение пользователя
+        ChatMessage.objects.create(session=session, role='user', content=message)
+
+        # 4. Вызываем Яндекс GPT
         metrics = session.analysis.metrics if session.analysis else {}
         system_prompt = (
             f"Ты — профессиональный агроном FloraAI. Данные растения: "
@@ -204,7 +231,7 @@ class ChatAPIView(APIView):
         folder_id = os.getenv("YANDEX_FOLDER_ID")
 
         if not api_key or not folder_id:
-            answer = f"Ответ (Заглушка). Нейросеть отключена. Вы спросили: {user_message}"
+            answer = f"Ответ (Заглушка). Нейросеть отключена. Вы спросили: {message}"
             ChatMessage.objects.create(session=session, role='assistant', content=answer)
             return Response({"reply": answer, "session_id": session.id})
 
@@ -213,7 +240,7 @@ class ChatAPIView(APIView):
         data = {
             "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
             "completionOptions": {"temperature": 0.3, "maxTokens": 1000},
-            "messages": [{"role": "system", "text": system_prompt}, {"role": "user", "text": user_message}]
+            "messages": [{"role": "system", "text": system_prompt}, {"role": "user", "text": message}]
         }
 
         try:
@@ -225,7 +252,6 @@ class ChatAPIView(APIView):
                 return Response({"reply": answer, "session_id": session.id})
         except Exception as e:
             return Response({"reply": f"⚠️ Ошибка связи с Яндекс: {str(e)}"}, status=500)
-
 
 # --- 4. ИСТОРИЯ КОНКРЕТНОГО ЧАТА ---
 class ChatDetailAPIView(APIView):
