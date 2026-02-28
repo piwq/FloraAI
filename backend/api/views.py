@@ -84,8 +84,24 @@ class MockSubscribeView(APIView):
 class PlantAnalysisViewSet(viewsets.ModelViewSet):
     queryset = PlantAnalysis.objects.all()
     serializer_class = PlantAnalysisSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        if self.request.user.is_authenticated:
+            return PlantAnalysis.objects.filter(user=self.request.user).order_by('-created_at')
+        return PlantAnalysis.objects.none()
 
     def create(self, request, *args, **kwargs):
+        user = request.user
+
+        if user.is_authenticated and not user.is_premium:
+            analysis_count = PlantAnalysis.objects.filter(user=user).count()
+            if analysis_count >= 3:
+                return Response({
+                    "error": "limit_reached",
+                    "message": "Лимит бесплатных анализов исчерпан."
+                }, status=status.HTTP_403_FORBIDDEN)
+
         image = request.FILES.get('original_image')
 
         if request.user.is_authenticated:

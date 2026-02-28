@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { uploadPlantPhoto, sendFloraChatMessage, getChatSessionDetails } from '@/services/apiClient';
+import toast from 'react-hot-toast';
+import { getChatSessionDetails, uploadPlantPhoto, sendFloraChatMessage } from '@/services/apiClient';
 
 export const useChat = (activeChatId, onNewChatCreated) => {
   const [messages, setMessages] = useState([]);
@@ -43,7 +43,29 @@ export const useChat = (activeChatId, onNewChatCreated) => {
           }
         }
       } catch (error) {
-        toast.error('Ошибка анализа.');
+        // --- НОВАЯ ОБРАБОТКА ОШИБКИ ЛИМИТОВ (403) ---
+        if (error.response?.status === 403 && error.response?.data?.error === 'limit_reached') {
+          toast.error(
+            (t) => (
+              <div className="flex flex-col gap-2">
+                <span className="font-bold">Достигнут лимит (3/3) 🚫</span>
+                <span className="text-sm">Бесплатные попытки анализа закончились. Оформите Premium для безлимитного доступа!</span>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    window.location.href = '/tariffs'; // Жесткий редирект на тарифы
+                  }}
+                  className="bg-accent-ai text-white rounded-lg px-3 py-2 text-sm font-bold mt-2 hover:bg-opacity-90 transition-colors"
+                >
+                  Перейти на Premium
+                </button>
+              </div>
+            ),
+            { duration: 8000 } // Висит подольше, чтобы юзер успел прочитать
+          );
+        } else {
+          toast.error('Ошибка анализа фото. Попробуйте снова.');
+        }
       } finally {
         setIsLoading(false);
       }

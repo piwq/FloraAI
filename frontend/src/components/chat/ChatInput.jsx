@@ -31,6 +31,23 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
     }
   };
 
+  // --- ЛОГИКА ВСТАВКИ ФОТО ЧЕРЕЗ CTRL+V ---
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        // Даем файлу имя, так как из буфера он приходит безымянным
+        const file = new File([blob], "pasted-photo.png", { type: items[i].type });
+        setSelectedFile(file);
+        e.preventDefault(); // Отменяем обычную вставку
+        break;
+      }
+    }
+  };
+
   const removeFile = () => {
     setSelectedFile(null);
     if (fileInputRef.current) {
@@ -38,13 +55,12 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
     }
   };
 
-  // Если требуется фото (новый чат) и фото еще не выбрано, блокируем текст
   const isTextDisabled = isLoading || (requirePhotoFirst && !selectedFile);
 
   return (
     <div className="bg-surface-2 border-t border-border-color p-4">
       {selectedFile && (
-        <div className="mb-3 flex items-center gap-2 bg-surface-1 p-2 rounded-lg border border-accent-ai/50 max-w-fit">
+        <div className="mb-3 flex items-center gap-2 bg-surface-1 p-2 rounded-lg border border-accent-ai/50 max-w-fit animate-fade-in-down">
           <span className="text-sm text-text-primary truncate max-w-[200px]">{selectedFile.name}</span>
           <button type="button" onClick={removeFile} className="text-text-secondary hover:text-red-500 transition-colors">
             <X size={16} />
@@ -57,7 +73,7 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
           onClick={() => fileInputRef.current?.click()}
           className={`p-3 transition-colors flex-shrink-0 ${requirePhotoFirst && !selectedFile ? 'text-accent-ai animate-pulse' : 'text-text-secondary hover:text-accent-ai'}`}
           disabled={isLoading}
-          title="Прикрепить фото растения"
+          title="Прикрепить фото (можно Ctrl+V)"
         >
           <Paperclip size={24} />
         </button>
@@ -72,7 +88,8 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={requirePhotoFirst && !selectedFile ? "Сначала прикрепите фото (скрепка слева)..." : "Спросите агронома о вашем растении..."}
+          onPaste={handlePaste} // <--- ПЕРЕХВАТ CTRL+V
+          placeholder={requirePhotoFirst && !selectedFile ? "Прикрепите фото или вставьте через Ctrl+V..." : "Спросите агронома о вашем растении (или вставьте фото)..."}
           className={`flex-1 bg-surface-1 text-text-primary rounded-xl p-3 max-h-32 min-h-[50px] resize-none focus:outline-none focus:ring-1 focus:ring-accent-ai border border-border-color ${isTextDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           disabled={isTextDisabled}
           rows={1}

@@ -5,7 +5,6 @@ from .models import PlantAnalysis
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
-    # Мапим name фронтенда во first_name в БД
     name = serializers.CharField(source='first_name', required=False, allow_blank=True)
     birthDate = serializers.DateField(source='birth_date', required=False, allow_null=True)
     subscriptionStatus = serializers.SerializerMethodField()
@@ -20,7 +19,11 @@ class UserSerializer(serializers.ModelSerializer):
         return 'PREMIUM' if obj.is_premium else 'BASIC'
 
     def get_remainingInterpretations(self, obj):
-        return 'Безлимит' if obj.is_premium else 3
+        if obj.is_premium:
+            return 'Безлимит'
+        # Считаем, сколько фото юзер уже загрузил
+        count = PlantAnalysis.objects.filter(user=obj).count()
+        return max(0, 3 - count)
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
