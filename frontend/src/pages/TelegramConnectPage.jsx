@@ -21,11 +21,17 @@ export const TelegramConnectPage = () => {
         return;
       }
 
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      const username = tgUser?.username || tgUser?.first_name || 'Пользователь';
+
       setIsLinking(true);
       setLinkError(null);
 
       try {
-        await linkTelegram(telegramId);
+        await linkTelegram({
+          telegram_id: telegramId,
+          username: username
+        });
 
         toast.success('Telegram успешно привязан!');
 
@@ -35,7 +41,7 @@ export const TelegramConnectPage = () => {
           } else {
             navigate('/app');
           }
-        }, 500);
+        }, 1000);
 
       } catch (error) {
         const msg = error.response?.data?.error || 'Ошибка привязки аккаунта.';
@@ -45,6 +51,7 @@ export const TelegramConnectPage = () => {
         setIsLinking(false);
       }
     };
+
   useEffect(() => {
     if (isAuthenticated && telegramId && !isLinking && !linkError) {
       performLink();

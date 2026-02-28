@@ -184,17 +184,32 @@ const ProfilePage = () => {
 
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Интеграции</h2>
-                    <a
-                      href="https://t.me/FloraAIBot"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 flex items-center justify-center gap-2 transition-colors"
-                    >
-                      <Send size={20}/>
-                      Открыть в Telegram
-                    </a>
+                    {/* Проверяем наличие telegramTag, который прилетает из сериализатора */}
+                    {user?.telegramTag ? (
+                        <div className="flex items-center justify-between p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white">
+                                    <Send size={20} />
+                                </div>
+                                <div>
+                                    <p className="text-sm text-text-secondary leading-none mb-1">Telegram привязан</p>
+                                    <p className="text-lg font-bold text-text-primary">@{user.telegramTag}</p>
+                                </div>
+                            </div>
+                            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-md uppercase font-bold tracking-wider">Active</span>
+                        </div>
+                    ) : (
+                        <a
+                          href={`https://t.me/FloraAI_hackaton_bot?start=auth`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-600 transition-colors"
+                        >
+                          <Send size={20}/>
+                          Привязать Telegram
+                        </a>
+                    )}
                 </div>
-
             </div>
           </div>
         </motion.div>

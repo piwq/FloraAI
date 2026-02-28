@@ -63,26 +63,26 @@ class LinkTelegramView(APIView):
 
     def post(self, request):
         telegram_id = request.data.get('telegram_id')
-        if not telegram_id:
-            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
+        telegram_username = request.data.get('username') # Получаем ник из фронта
 
-        # Проверка уникальности
+        if not telegram_id:
+            return Response({"error": "ID обязателен"}, status=400)
+
+        # Проверка на дубликаты
         if User.objects.filter(telegram_id=telegram_id).exclude(id=request.user.id).exists():
-            return Response({"error": "Этот Telegram уже привязан к другому аккаунту"},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Этот аккаунт уже привязан к другому профилю"}, status=400)
 
         user = request.user
-        user.telegram_id = int(telegram_id)
+        user.telegram_id = telegram_id
+        user.telegram_username = telegram_username
         user.save()
 
+        # Отправка уведомления в бот
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if bot_token:
-            msg_text = "✅ **Аккаунт успешно привязан!**\n\nТеперь вам доступно общение с ИИ-агрономом после анализа фото. Все ваши чаты будут синхронизированы с сайтом.\n\nОжидаю ваше фото для анализа! 🌿"
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            try:
-                requests.post(url, json={"chat_id": telegram_id, "text": msg_text, "parse_mode": "Markdown"})
-            except Exception as e:
-                print(f"Ошибка отправки уведомления в ТГ: {e}")
+            msg = f"🤝 **Профиль FloraAI успешно привязан!**\n\nТеперь ваша история синхронизирована. Вам доступно общение с ИИ после каждого анализа.\n\n⚠️ Внимание: теперь действуют правила вашего тарифа (3 бесплатных анализа)."
+            requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                          json={"chat_id": telegram_id, "text": msg, "parse_mode": "Markdown"})
 
         return Response({"status": "success"})
 
@@ -108,64 +108,52 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         return PlantAnalysis.objects.none()
 
     def create(self, request, *args, **kwargs):
-        is_from_bot = 'telegram_id' in request.data
-        user = request.user
-
-        if not is_from_bot and user.is_authenticated and not user.is_premium:
-            if PlantAnalysis.objects.filter(user=user).count() >= 3:
-                return Response({"error": "limit_reached"}, status=403)
-
-        if user.is_authenticated and not user.is_premium:
-            analysis_count = PlantAnalysis.objects.filter(user=user).count()
-            if analysis_count >= 3:
-                return Response({
-                    "error": "limit_reached",
-                    "message": "Лимит бесплатных анализов исчерпан."
-                }, status=status.HTTP_403_FORBIDDEN)
-
+        telegram_id = request.data.get('telegram_id')
         image = request.FILES.get('original_image')
+        user = None
 
-        if request.user.is_authenticated:
-            user = request.user
-        else:
-            telegram_id = request.data.get('telegram_id')
-            if not telegram_id or not str(telegram_id).isdigit():
-                return Response(
-                    {"error": "telegram_id must be a number for non-authenticated users"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if telegram_id:
             user, _ = User.objects.get_or_create(
                 telegram_id=int(telegram_id),
-                defaults={'username': f"user_{telegram_id}"}
+                defaults={'username': f"tg_{telegram_id}"}
             )
+        else:
+            user = request.user if request.user.is_authenticated else None
+
+        if not user:
+            return Response({"error": "Unauthorized"}, status=401)
+
+        # ЛОГИКА ЛИМИТОВ: привязанные (с email) и без Premium ограничены 3 фото
+        is_linked = bool(user.email)
+        if is_linked and not user.is_premium:
+            if PlantAnalysis.objects.filter(user=user).count() >= 3:
+                return Response({"error": "limit_reached"}, status=403)
 
         # 1. Создаем анализ
         analysis = PlantAnalysis.objects.create(
             user=user, original_image=image, status='COMPLETED',
-            metrics={"plant_type": "Arugula (Руккола)", "leaf_area_cm2": 15.4, "root_length_mm": 120.5, "stem_diameter_mm": 4.2}
+            metrics={"plant_type": "Arugula (Руккола)", "leaf_area_cm2": 15.4, "root_length_mm": 120.5}
         )
 
-        # 2. Создаем сессию чата
+        # 2. ВСЕГДА создаем сессию (для ТГ это критично)
         session = ChatSession.objects.create(user=user, analysis=analysis)
 
-        # 3. СОХРАНЯЕМ СТАРТОВЫЕ СООБЩЕНИЯ В БАЗУ!
-        ChatMessage.objects.create(session=session, role='user', content=f"📎 Отправлено фото: {image.name}")
         bot_reply = (
             f"✅ **Анализ завершен!**\n\n"
             f"🌿 Культура: {analysis.metrics['plant_type']}\n"
-            f"📏 Площадь листьев: {analysis.metrics['leaf_area_cm2']} см²\n"
-            f"📏 Длина корня: {analysis.metrics['root_length_mm']} мм\n\n"
-            f"Задайте вопрос агроному!"
+            f"📏 Площадь листьев: {analysis.metrics['leaf_area_cm2']} см²"
         )
+
+        # Сохраняем в историю
         ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
 
-        # 4. Возвращаем данные анализа + ID новой сессии
-        serializer = self.get_serializer(analysis)
-        response_data = serializer.data
+        # 3. Формируем ответ
+        response_data = self.get_serializer(analysis).data
         response_data['session_id'] = session.id
         response_data['bot_reply'] = bot_reply
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        response_data['is_linked'] = is_linked  # Подсказываем боту статус
 
+        return Response(response_data, status=201)
 
 # --- 3. ЧАТ С АГРОНОМОМ YANDEX GPT ---
 class ChatAPIView(APIView):

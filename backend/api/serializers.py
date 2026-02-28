@@ -9,10 +9,10 @@ class UserSerializer(serializers.ModelSerializer):
     birthDate = serializers.DateField(source='birth_date', required=False, allow_null=True)
     subscriptionStatus = serializers.SerializerMethodField()
     remainingInterpretations = serializers.SerializerMethodField()
-
+    telegramTag = serializers.CharField(source='telegram_username', read_only=True)
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations')
+        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag')
         read_only_fields = ('id', 'username', 'email')
 
     def get_subscriptionStatus(self, obj):

@@ -1,6 +1,42 @@
+import os
+import io
+from aiogram import Router, F
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from app.services.api_client import upload_photo_to_api, send_chat_message_to_api
+
+router = Router()
+
+
+class ChatStates(StatesGroup):
+    active_chat = State()  # Состояние активного диалога с ИИ
+
+
+def get_webapp_keyboard(tg_id: int):
+    webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🌿 Привязать профиль FloraAI",
+            web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}")
+        )]
+    ])
+
+
+def get_premium_keyboard():
+    webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💎 Оформить Premium",
+            web_app=WebAppInfo(url=f"{webapp_url}/tariffs")
+        )]
+    ])
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()  # Начинаем новый чат по команде /start
+    await state.clear()  # Сбрасываем всё при /start
     text = (
         "Привет! Я FloraAI — твой ИИ-агроном. 🌿\n\n"
         "📸 **Просто отправь фото растения**, чтобы получить моментальный анализ.\n\n"
@@ -17,7 +53,7 @@ async def handle_photo(message: Message, state: FSMContext):
     file_info = await message.bot.get_file(photo.file_id)
     photo_bytes = await message.bot.download_file(file_info.file_path)
 
-    # Отправляем на бэкенд telegram_id
+    # Отправляем фото на бэкенд
     data, status = await upload_photo_to_api(
         telegram_id=message.from_user.id,
         photo_bytes=photo_bytes.read(),
@@ -27,40 +63,48 @@ async def handle_photo(message: Message, state: FSMContext):
     await wait_msg.delete()
 
     if status == 201:
-        # Анализ всегда успешен
+        # 1. Выводим результат анализа
         await message.answer(data.get('bot_reply', '✅ Анализ готов!'))
 
-        # Если бэкенд прислал session_id — значит юзер ПРИВЯЗАН и можно чатить
         session_id = data.get('session_id')
-        if session_id:
+        is_linked = data.get('is_linked', False)
+
+        # 2. Проверяем, можно ли продолжать чат
+        if is_linked and session_id:
+            # Юзер привязан -> Включаем режим чата
             await state.update_data(session_id=session_id)
             await state.set_state(ChatStates.active_chat)
+            await message.answer("✍️ Вы можете задать уточняющий вопрос агроному.")
         else:
-            # Юзер НЕ ПРИВЯЗАН
+            # Юзер не привязан -> Сбрасываем стейт и просим привязаться
+            await state.clear()
             await message.answer(
-                "💡 Чтобы обсудить этот анализ с ИИ, привяжите аккаунт.",
+                "💡 Чтобы обсудить этот анализ с ИИ и сохранять историю, привяжите аккаунт!",
                 reply_markup=get_webapp_keyboard(message.from_user.id)
             )
+
+    elif status == 403:
+        # Обработка лимита (3 фото для привязанных без Premium)
+        await message.answer(
+            "🚫 **Лимит анализов исчерпан.**\n\nДля безлимитной загрузки фото перейдите на Premium тариф.",
+            reply_markup=get_premium_keyboard()
+        )
     else:
-        await message.answer("Ошибка связи с сервером.")
+        await message.answer("❌ Произошла ошибка на сервере. Попробуйте позже.")
 
 
-@router.message(F.text)
+# Обрабатываем текст ТОЛЬКО если пользователь находится в состоянии ChatStates.active_chat
+@router.message(ChatStates.active_chat, F.text)
 async def handle_text(message: Message, state: FSMContext):
-    # Проверяем, есть ли активная сессия в FSM
     state_data = await state.get_data()
     session_id = state_data.get('session_id')
 
     if not session_id:
-        await message.answer(
-            "⚠️ **Чат недоступен.**\n\n"
-            "Чтобы общаться с ИИ, нужно сначала отправить фото растения. "
-            "Если вы уже отправили фото, но чат не начался — привяжите аккаунт!",
-            reply_markup=get_webapp_keyboard(message.from_user.id)
-        )
+        await state.clear()
+        await message.answer("⚠️ Сессия чата потеряна. Пожалуйста, отправьте новое фото.")
         return
 
-    # Если сессия есть, шлем сообщение
+    # Отправляем текст в YandexGPT через наш API
     data, status = await send_chat_message_to_api(
         telegram_id=message.from_user.id,
         message=message.text,
@@ -68,6 +112,17 @@ async def handle_text(message: Message, state: FSMContext):
     )
 
     if status == 200:
-        await message.answer(data.get('reply'))
+        await message.answer(data.get('reply', '...'))
     else:
-        await message.answer("Произошла ошибка. Попробуйте начать заново через /start")
+        await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить фото заново.")
+
+
+# Ловим текст, если юзер пытается писать без фото или без привязки
+@router.message(F.text)
+async def handle_text_no_session(message: Message):
+    await message.answer(
+        "⚠️ **Чат недоступен.**\n\n"
+        "Чтобы начать общение с ИИ, сначала **отправьте фото растения**.\n"
+        "Если вы уже отправили фото, но не можете писать — убедитесь, что ваш аккаунт привязан.",
+        reply_markup=get_webapp_keyboard(message.from_user.id)
+    )

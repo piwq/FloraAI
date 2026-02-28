@@ -3,10 +3,8 @@ from django.contrib.auth.models import AbstractUser
 
 
 class User(AbstractUser):
-    """Кастомная модель пользователя"""
-    # Если хочешь хранить 'web_...' строки, смени на CharField.
-    # Если только числа — оставь как есть.
     telegram_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    telegram_username = models.CharField(max_length=150, blank=True, null=True)
     is_premium = models.BooleanField(default=False)
 
     # ДОБАВЛЯЕМ ПОЛЕ ДЛЯ ФРОНТЕНДА

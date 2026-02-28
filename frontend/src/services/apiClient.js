@@ -44,7 +44,7 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
 };
 
 // Интеграции и оплата
-export const linkTelegram = (telegramId) => apiClient.post('/auth/telegram/link/', { telegram_id: telegramId });
+export const linkTelegram = (data) => apiClient.post('/auth/telegram/link/', data);
 export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');
 
 export default apiClient;
