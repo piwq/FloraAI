@@ -12,7 +12,11 @@ const ProfilePage = () => {
   const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '' });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Получаем сегодняшнюю дату в формате YYYY-MM-DD для ограничения максимальной даты
+  // Стейты для настроек ИИ
+  const [yoloConf, setYoloConf] = useState(0.25);
+  const [yoloIou, setYoloIou] = useState(0.7);
+  const [yoloImgsz, setYoloImgsz] = useState(640);
+
   const todayDateStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -24,6 +28,9 @@ const ProfilePage = () => {
           name: response.data.name || '',
           birthDate: response.data.birthDate ? response.data.birthDate.split('T')[0] : '',
         });
+        setYoloConf(response.data.yolo_conf ?? 0.25);
+        setYoloIou(response.data.yolo_iou ?? 0.7);
+        setYoloImgsz(response.data.yolo_imgsz ?? 640);
       } catch (error) {
         toast.error('Не удалось загрузить профиль.');
       } finally {
@@ -39,7 +46,6 @@ const ProfilePage = () => {
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
 
-    // Валидация даты рождения
     if (formData.birthDate) {
       const selectedYear = new Date(formData.birthDate).getFullYear();
       const selectedDate = new Date(formData.birthDate);
@@ -55,15 +61,22 @@ const ProfilePage = () => {
       }
     }
 
-    const promise = updateUserProfile(formData).then(res => {
-        // Обновляем локальное состояние имени, если оно изменилось
+    const payload = {
+      name: formData.name,
+      birthDate: formData.birthDate,
+      yolo_conf: yoloConf,
+      yolo_iou: yoloIou,
+      yolo_imgsz: yoloImgsz
+    };
+
+    const promise = updateUserProfile(payload).then(res => {
         setUser(prev => ({ ...prev, name: res.data.name }));
         return res;
     });
 
     toast.promise(promise, {
       loading: 'Сохранение...',
-      success: 'Профиль успешно обновлен!',
+      success: 'Профиль и настройки ИИ обновлены!',
       error: 'Ошибка при обновлении профиля.',
     });
   };
@@ -95,7 +108,7 @@ const ProfilePage = () => {
           <h1 className="font-headings text-3xl sm:text-4xl font-bold mb-8">Мой профиль</h1>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
-            {/* ЛЕВЫЙ БЛОК: Личные данные */}
+            {/* ЛЕВЫЙ БЛОК: Личные данные и Настройки ИИ */}
             <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
               <h2 className="text-2xl font-semibold mb-6">Личные данные</h2>
               <form onSubmit={handleProfileUpdate} className="space-y-4">
@@ -129,15 +142,64 @@ const ProfilePage = () => {
                     className="w-full bg-surface-1 border border-border-color focus:border-accent-ai focus:ring-1 focus:ring-accent-ai rounded-lg p-3 mt-1 text-text-primary outline-none transition-colors [color-scheme:dark]"
                   />
                 </div>
-                <button type="submit" className="w-full bg-accent-ai text-white font-bold py-3 px-4 rounded-lg mt-4 hover:opacity-90 transition-colors">
-                  Сохранить
+
+                {/* --- ПАНЕЛЬ НАСТРОЕК ИИ (ТЕПЕРЬ ВНУТРИ ФОРМЫ) --- */}
+                <div className="mt-8 pt-6 border-t border-border-color">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span role="img" aria-label="brain">🧠</span> Настройки ИИ-агронома
+                  </h3>
+
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex justify-between mb-1">
+                        <label className="text-sm font-medium text-text-secondary">Чувствительность к корням</label>
+                        <span className="text-sm font-bold text-accent-ai">{yoloConf}</span>
+                      </div>
+                      <input
+                        type="range" min="0.05" max="0.95" step="0.05"
+                        value={yoloConf}
+                        onChange={(e) => setYoloConf(parseFloat(e.target.value))}
+                        className="w-full h-2 bg-surface-1 rounded-lg appearance-none cursor-pointer accent-accent-ai"
+                      />
+                      <p className="text-xs text-text-secondary mt-1">Ниже — больше мелких деталей. Выше — меньше ошибок.</p>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between mb-1">
+                        <label className="text-sm font-medium text-text-secondary">Склеивание пересечений</label>
+                        <span className="text-sm font-bold text-accent-ai">{yoloIou}</span>
+                      </div>
+                      <input
+                        type="range" min="0.1" max="0.9" step="0.1"
+                        value={yoloIou}
+                        onChange={(e) => setYoloIou(parseFloat(e.target.value))}
+                        className="w-full h-2 bg-surface-1 rounded-lg appearance-none cursor-pointer accent-accent-ai"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-text-secondary mb-1 block">Детализация фото</label>
+                      <select
+                        value={yoloImgsz}
+                        onChange={(e) => setYoloImgsz(parseInt(e.target.value))}
+                        className="w-full px-4 py-2 bg-surface-1 border border-border-color rounded-lg focus:ring-accent-ai focus:border-accent-ai outline-none"
+                      >
+                        <option value={480}>480px (Быстро)</option>
+                        <option value={640}>640px (Оптимально)</option>
+                        <option value={1024}>1024px (Максимальная точность)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-accent-ai text-white font-bold py-3 px-4 rounded-lg mt-6 hover:opacity-90 transition-colors">
+                  Сохранить настройки
                 </button>
               </form>
             </div>
 
             {/* ПРАВЫЙ БЛОК: Пароль, Подписка, Интеграции */}
             <div className="space-y-8">
-
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-6">Смена пароля</h2>
                     <form onSubmit={handlePasswordUpdate} className="space-y-4">
@@ -168,7 +230,6 @@ const ProfilePage = () => {
                     <p className="text-lg">Ваш статус: <span className="font-bold text-accent-ai">{user?.subscriptionStatus}</span></p>
                     <p className="text-text-secondary">Осталось анализов: {user?.remainingInterpretations}</p>
 
-                    {/* Логика блокировки кнопки Premium */}
                     {isPremium ? (
                       <button disabled className="w-full bg-surface-1 text-text-primary font-bold py-3 px-4 rounded-lg mt-4 opacity-50 cursor-not-allowed">
                         Вы уже Premium
@@ -184,7 +245,6 @@ const ProfilePage = () => {
 
                 <div className="bg-surface-2 p-8 rounded-lg border border-border-color">
                     <h2 className="text-2xl font-semibold mb-4">Интеграции</h2>
-                    {/* Проверяем наличие telegramTag, который прилетает из сериализатора */}
                     {user?.telegramTag ? (
                         <div className="flex items-center justify-between p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
                             <div className="flex items-center gap-3">

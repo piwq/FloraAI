@@ -1,7 +1,6 @@
-import os
-import re
+import os, aiohttp, re
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, CallbackQuery, BufferedInputFile
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -164,10 +163,39 @@ async def handle_photo(message: Message, state: FSMContext):
     await wait_msg.delete()
 
     if status == 201:
-        # ПРИМЕНЯЕМ КОНВЕРТЕР К ОТВЕТУ С ФОТО
         raw_reply = data.get('bot_reply', '✅ Анализ готов!')
         formatted_reply = format_llm_to_html(raw_reply)
-        await message.answer(formatted_reply, parse_mode="HTML")
+
+        # --- НОВАЯ ЛОГИКА: ИЩЕМ И ОТПРАВЛЯЕМ КАРТИНКУ ---
+        annotated_image_url = data.get('annotated_image')
+
+        if annotated_image_url:
+            # Превращаем относительный путь Django во внутренний URL Docker
+            if annotated_image_url.startswith('/'):
+                annotated_image_url = f"http://backend:8000{annotated_image_url}"
+            elif 'localhost' in annotated_image_url or '127.0.0.1' in annotated_image_url:
+                annotated_image_url = annotated_image_url.replace('localhost', 'backend').replace('127.0.0.1', 'backend')
+
+            try:
+                # Скачиваем картинку из бэкенда
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(annotated_image_url) as resp:
+                        if resp.status == 200:
+                            image_bytes = await resp.read()
+                            # Формируем файл для Telegram
+                            input_file = BufferedInputFile(image_bytes, filename="annotated_plant.jpg")
+                            # Отправляем фото, а текст помещаем в описание (caption)
+                            await message.answer_photo(photo=input_file, caption=formatted_reply, parse_mode="HTML")
+                        else:
+                            # Заглушка, если картинка не скачалась
+                            await message.answer(formatted_reply, parse_mode="HTML")
+            except Exception as e:
+                print(f"Ошибка загрузки фото: {e}")
+                await message.answer(formatted_reply, parse_mode="HTML")
+        else:
+            # Если картинки нет в ответе, шлем просто текст
+            await message.answer(formatted_reply, parse_mode="HTML")
+        # ------------------------------------------------
 
         session_id = data.get('session_id')
         is_linked = data.get('is_linked', False)
@@ -192,7 +220,6 @@ async def handle_photo(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Произошла ошибка на сервере. Попробуйте позже.")
 
-
 @router.message(ChatStates.active_chat, F.text)
 async def handle_text(message: Message, state: FSMContext):
     state_data = await state.get_data()
@@ -216,6 +243,34 @@ async def handle_text(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить фото заново.")
 
+@router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    profile = await get_bot_profile(message.from_user.id)
+    if not profile or not profile.get('is_linked'):
+        await message.answer("⚠️ Сначала привяжите профиль для настройки ИИ!")
+        return
+
+    # Сюда можно добавить красивую клавиатуру (InlineKeyboardMarkup),
+    # которая будет менять значения. Для хакатона самый быстрый способ -
+    # просто перенаправлять их в WebApp (твой Frontend), где лежат ползунки.
+
+    webapp_url = os.getenv('WEBAPP_URL', 'google.com')
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="⚙️ Открыть панель настроек AI",
+            web_app=WebAppInfo(url=f"{webapp_url}/profile")
+        )]
+    ])
+
+    text = (
+        "🎛 <b>Настройки нейросети FloraAI</b>\n\n"
+        "Здесь вы можете откалибровать алгоритм под свои задачи:\n"
+        "• <b>Уверенность (Conf):</b> влияет на поиск мелких корней.\n"
+        "• <b>Размер (ImgSz):</b> влияет на детализацию (640 или 1024).\n"
+        "• <b>Перекрытие (IoU):</b> влияет на склеивание пересекающихся корней.\n\n"
+        "Нажмите кнопку ниже, чтобы изменить параметры:"
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 @router.message(F.text)
 async def handle_text_no_session(message: Message):

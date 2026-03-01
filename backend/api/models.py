@@ -7,6 +7,10 @@ class User(AbstractUser):
     telegram_username = models.CharField(max_length=150, blank=True, null=True)
     is_premium = models.BooleanField(default=False)
 
+    yolo_conf = models.FloatField(default=0.25, verbose_name="Уверенность (Confidence)")
+    yolo_iou = models.FloatField(default=0.7, verbose_name="Порог перекрытия (IoU)")
+    yolo_imgsz = models.IntegerField(default=640, verbose_name="Размер фото для ИИ")
+
     # ДОБАВЛЯЕМ ПОЛЕ ДЛЯ ФРОНТЕНДА
     birth_date = models.DateField(null=True, blank=True)
 

@@ -10,9 +10,10 @@ class UserSerializer(serializers.ModelSerializer):
     subscriptionStatus = serializers.SerializerMethodField()
     remainingInterpretations = serializers.SerializerMethodField()
     telegramTag = serializers.CharField(source='telegram_username', read_only=True)
+
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag')
+        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag', 'yolo_conf', 'yolo_iou', 'yolo_imgsz')
         read_only_fields = ('id', 'username', 'email')
 
     def get_subscriptionStatus(self, obj):

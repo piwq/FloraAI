@@ -7,6 +7,8 @@ from api.views import (
     UserProfileView, ChatDetailAPIView, LinkTelegramView,
     ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView, LogoutView
 )
+from django.conf import settings
+from django.conf.urls.static import static
 
 router = DefaultRouter()
 router.register(r'analyses', PlantAnalysisViewSet, basename='analyses')
@@ -30,3 +32,7 @@ urlpatterns = [
     path('api/bot/profile/', BotProfileView.as_view(), name='bot-profile'),
     path('api/bot/history/', BotHistoryView.as_view(), name='bot-history'),
 ]
+
+# ВАЖНО: Учим Django раздавать медиафайлы (картинки)!
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

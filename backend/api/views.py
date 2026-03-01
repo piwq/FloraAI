@@ -152,15 +152,24 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         if not user:
             return Response({"error": "Unauthorized"}, status=401)
 
-        # ЛОГИКА ЛИМИТОВ: привязанные (с email) и без Premium ограничены 3 фото
         is_linked = bool(user.email)
         if is_linked and not user.is_premium:
             if PlantAnalysis.objects.filter(user=user).count() >= 3:
                 return Response({"error": "limit_reached"}, status=403)
 
-        # 1. Отправляем фото в ML-микросервис
         image.seek(0)
         files = {'file': (image.name, image.read(), image.content_type)}
+
+        user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
+        user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
+        user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
+
+        data_payload = {
+            'conf': user_conf,
+            'iou': user_iou,
+            'imgsz': user_imgsz
+        }
+
         ml_data = {
             "plant_type": "Неизвестно",
             "leaf_area_cm2": 0,
@@ -170,26 +179,26 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         annotated_image_content = None
 
         try:
-            # Стучимся в контейнер flora_ml
-            ml_response = requests.post("http://flora_ml:8001/predict", files=files, timeout=40)
+            ml_response = requests.post(
+                "http://flora_ml:8001/predict",
+                files=files,
+                data=data_payload,
+                timeout=40
+            )
             if ml_response.status_code == 200:
                 response_json = ml_response.json()
 
-                # Извлекаем картинку Base64 из ответа (и удаляем её из словаря с метриками)
                 img_b64 = response_json.pop('annotated_image_base64', None)
                 if img_b64:
-                    # Декодируем Base64 обратно в бинарный файл картинки
                     image_data = base64.b64decode(img_b64)
                     annotated_image_content = ContentFile(image_data, name=f"annotated_{image.name}")
 
-                # Сохраняем оставшиеся чистые метрики
                 ml_data = response_json
         except Exception as e:
             print(f"ML Error: {e}")
 
-        image.seek(0)  # Обязательно перематываем оригинальный файл обратно для сохранения в БД
+        image.seek(0)
 
-        # 2. Создаем запись анализа в БД
         analysis = PlantAnalysis.objects.create(
             user=user,
             original_image=image,
@@ -197,11 +206,9 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             metrics=ml_data
         )
 
-        # Если ML-сервис вернул картинку с масками — сохраняем её в новое поле
         if annotated_image_content:
             analysis.annotated_image.save(annotated_image_content.name, annotated_image_content, save=True)
 
-        # 3. Создаем сессию чата (для ТГ это критично)
         session = ChatSession.objects.create(user=user, analysis=analysis)
 
         bot_reply = (
@@ -212,14 +219,12 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             f"📏 Длина стебля: {analysis.metrics.get('stem_length_mm', 0)} мм"
         )
 
-        # Сохраняем в историю чата
         ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
 
-        # 4. Формируем ответ для API
         response_data = self.get_serializer(analysis).data
         response_data['session_id'] = session.id
         response_data['bot_reply'] = bot_reply
-        response_data['is_linked'] = is_linked  # Подсказываем боту статус
+        response_data['is_linked'] = is_linked
 
         return Response(response_data, status=201)
 
