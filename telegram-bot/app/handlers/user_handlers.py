@@ -261,6 +261,7 @@ async def handle_photo(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Произошла ошибка на сервере. Попробуйте позже.")
 
+
 @router.message(ChatStates.active_chat, F.photo)
 async def handle_chat_photo(message: Message, state: FSMContext):
     state_data = await state.get_data()
@@ -289,9 +290,28 @@ async def handle_chat_photo(message: Message, state: FSMContext):
     if status == 200:
         raw_reply = data.get('reply', '...')
         formatted_reply = format_llm_to_html(raw_reply)
-        await message.answer(formatted_reply, parse_mode="HTML")
+        image_url = data.get('image_url')
+
+        # Если АПИ вернул ссылку на разметку (или результат), скачиваем её
+        if image_url:
+            dl_msg = await message.answer("Скачиваю разметку... ⏳")
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.get(image_url) as resp:
+                    if resp.status == 200:
+                        img_bytes = await resp.read()
+                        await message.answer_photo(
+                            photo=BufferedInputFile(img_bytes, filename="markup.jpg"),
+                            caption=formatted_reply,
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await message.answer(formatted_reply, parse_mode="HTML")
+            await dl_msg.delete()
+        else:
+            await message.answer(formatted_reply, parse_mode="HTML")
     else:
         await message.answer("❌ Ошибка связи с сервером.")
+
 
 @router.message(ChatStates.active_chat, F.text)
 async def handle_text(message: Message, state: FSMContext):
@@ -303,19 +323,40 @@ async def handle_text(message: Message, state: FSMContext):
         await message.answer("⚠️ Сессия чата потеряна. Пожалуйста, отправьте новое фото.")
         return
 
+    wait_msg = await message.answer("Агроном печатает... ⏳")
+
     data, status = await send_chat_message_to_api(
         telegram_id=message.from_user.id,
         message=message.text,
         session_id=session_id
     )
 
+    await wait_msg.delete()
+
     if status == 200:
         raw_reply = data.get('reply', '...')
         formatted_reply = format_llm_to_html(raw_reply)
-        await message.answer(formatted_reply, parse_mode="HTML")
-    else:
-        await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить фото заново.")
+        image_url = data.get('image_url')
 
+        # Если мы написали "покажи разметку", АПИ вернет image_url
+        if image_url:
+            dl_msg = await message.answer("Загружаю фото... ⏳")
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.get(image_url) as resp:
+                    if resp.status == 200:
+                        img_bytes = await resp.read()
+                        await message.answer_photo(
+                            photo=BufferedInputFile(img_bytes, filename="markup.jpg"),
+                            caption=formatted_reply,
+                            parse_mode="HTML"
+                        )
+                    else:
+                        await message.answer(formatted_reply, parse_mode="HTML")
+            await dl_msg.delete()
+        else:
+            await message.answer(formatted_reply, parse_mode="HTML")
+    else:
+        await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить сообщение заново.")
 
 def get_settings_keyboard(conf, iou, imgsz):
     return InlineKeyboardMarkup(inline_keyboard=[
