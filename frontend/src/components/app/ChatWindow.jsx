@@ -35,25 +35,13 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
       try {
         const response = await apiClient.get(`/chat/${currentChatId}/`);
 
-        // Гарантируем, что работаем с массивом, даже если структура ответа изменится
+        // Гарантируем, что работаем с массивом
         const history = Array.isArray(response.data) ? response.data : (response.data?.messages || []);
 
-        const analysisMessages = [];
+        // --- УБРАЛИ ЛОГИКУ СКЛЕИВАНИЯ analysisMessages ---
+        // Теперь бэкенд сам присылает фото в массиве history!
 
-        // Достаем картинки оригинального анализа (они не хранятся в обычных сообщениях)
-        const origImg = session?.original_image || session?.analysis?.original_image;
-        const annImg = session?.annotated_image || session?.analysis?.annotated_image;
-
-        // Если картинки есть, добавляем их без текста (чтобы текст из БД не дублировался)
-        if (origImg) {
-          analysisMessages.push({ role: 'user', content: '', image: origImg });
-        }
-        if (annImg) {
-          analysisMessages.push({ role: 'assistant', content: '', image: annImg });
-        }
-
-        // Склеиваем фото из анализа и текстовую историю из базы данных
-        setMessages([...analysisMessages, ...history]);
+        setMessages(history); // Просто кладем историю как есть
       } catch (error) {
         console.error("Ошибка загрузки истории:", error);
       } finally {
@@ -62,7 +50,7 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
     };
 
     fetchHistory();
-  }, [currentChatId, session, setMessages]);
+  }, [currentChatId, setMessages]); // Убрали session из зависимостей
 
   const handleSend = async (text, file) => {
     if (file) {

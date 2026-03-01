@@ -154,7 +154,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
 
         # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
         image.seek(0)
-        ml_data, annotated_image_content = analyze_plant_image(image, user_conf, user_iou, user_imgsz)
+        ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz)  # Убрали annotated_image_content
         image.seek(0)
 
         analysis = PlantAnalysis.objects.create(
@@ -164,10 +164,11 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             metrics=ml_data
         )
 
-        if annotated_image_content:
-            analysis.annotated_image.save(annotated_image_content.name, annotated_image_content, save=True)
-
         session = ChatSession.objects.create(user=user, analysis=analysis)
+
+        # --- НОВОЕ: ДОБАВЛЯЕМ ФОТО КАК ПЕРВОЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ---
+        ChatMessage.objects.create(session=session, role='user', image=analysis.original_image,
+                                   content="Отправил(а) фото на анализ")
 
         bot_reply = (
             f"✅ **Анализ завершен!**\n\n"
