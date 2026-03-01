@@ -101,17 +101,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return
 
         if role == 'user':
-            prefix = f"💻 <b>Вы (с сайта, чат #{self.session_id}):</b>\n"
+            prefix = f"💻 Вы (с сайта, чат #{self.session_id}):\n\n"
         else:
-            prefix = f"🧑‍🌾 <b>Агроном (ответ на сайте):</b>\n"
+            prefix = f"🧑‍🌾 Агроном (ответ на сайте):\n\n"
 
         try:
             requests.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={
                     "chat_id": self.user.telegram_id,
-                    "text": f"{prefix}{text}",
-                    "parse_mode": "HTML"
+                    "text": f"{prefix}{text}"
                 },
                 timeout=5
             )

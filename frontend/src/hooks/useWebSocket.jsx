@@ -34,8 +34,7 @@ export const useWebSocket = (sessionId, token) => {
   const sendMessage = useCallback((content) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({ message: content }));
-      setMessages((prev) => [...prev, { role: 'user', content }]);
-      setIsTyping(true); // Включаем "Агроном печатает..."
+      setIsTyping(true);
     }
   }, []);
 

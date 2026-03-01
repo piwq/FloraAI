@@ -206,9 +206,9 @@ class ChatAPIView(APIView):
         session_id = request.data.get('session_id')
         message = request.data.get('message', '')
         telegram_id = request.data.get('telegram_id')
-        image = request.FILES.get('image')  # Ловим картинку из ТГ
+        image = request.FILES.get('image')
 
-        # Проверяем, что есть хотя бы текст ИЛИ картинка
+        is_from_bot = bool(telegram_id)
         if not session_id or (not message and not image):
             return Response({"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -255,6 +255,28 @@ class ChatAPIView(APIView):
             room_group_name,
             {'type': 'chat_message', 'role': 'assistant', 'message': answer, 'image': None}
         )
+
+        if not is_from_bot and user.telegram_id:
+            bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+            if bot_token:
+                import requests
+                user_msg_text = message if message else "отправил(а) фото"
+                try:
+                    # Дублируем вопрос юзера
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": user.telegram_id,
+                              "text": f"💻 Вы (с сайта, чат #{session.id}):\n\n{user_msg_text}"},
+                        timeout=5
+                    )
+                    # Дублируем ответ ИИ
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": user.telegram_id, "text": f"🧑‍🌾 Агроном (ответ на сайте):\n\n{answer}"},
+                        timeout=5
+                    )
+                except Exception as e:
+                    print(f"Ошибка пересылки фото в ТГ: {e}")
 
         return Response({"reply": answer, "session_id": session.id})
 
