@@ -57,3 +57,14 @@ async def update_bot_settings(telegram_id: int, settings: dict):
         except Exception as e:
             print(f"Ошибка обновления настроек: {e}")
             return False
+
+async def delete_bot_session(telegram_id: int, session_id: str):
+    """Удаляет конкретный анализ из истории"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            # Отправляем DELETE запрос на бэкенд
+            async with session.delete(f"{BASE_URL}/bot/history/?telegram_id={telegram_id}&session_id={session_id}") as resp:
+                return resp.status == 200
+        except Exception as e:
+            print(f"Ошибка удаления: {e}")
+            return False
