@@ -46,3 +46,14 @@ async def get_bot_history(telegram_id: int):
         except Exception as e:
             print(f"Ошибка получения истории: {e}")
         return None
+
+async def update_bot_settings(telegram_id: int, settings: dict):
+    """Отправляет новые настройки ИИ на бэкенд"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            payload = {"telegram_id": telegram_id, **settings}
+            async with session.patch(f"{BASE_URL}/bot/profile/", json=payload) as resp:
+                return resp.status == 200
+        except Exception as e:
+            print(f"Ошибка обновления настроек: {e}")
+            return False

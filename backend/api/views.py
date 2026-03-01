@@ -337,6 +337,7 @@ class MockSubscribeView(APIView):
         user.save()
         return Response({"status": "success", "message": "Premium подписка успешно активирована!"})
 
+
 class BotProfileView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -355,8 +356,32 @@ class BotProfileView(APIView):
             "email": user.email,
             "username": user.telegram_username,
             "subscription": "PREMIUM" if user.is_premium else "FREE",
-            "analyses_count": analyses_count
+            "analyses_count": analyses_count,
+            # Отдаем настройки ИИ боту
+            "yolo_conf": user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25,
+            "yolo_iou": user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7,
+            "yolo_imgsz": user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
         })
+
+    def patch(self, request):
+        # Метод для сохранения настроек, которые пришлет бот
+        tg_id = request.data.get('telegram_id')
+        if not tg_id:
+            return Response({"error": "Missing telegram_id"}, status=400)
+
+        user = User.objects.filter(telegram_id=tg_id).first()
+        if not user:
+            return Response({"error": "User not found"}, status=404)
+
+        if 'yolo_conf' in request.data:
+            user.yolo_conf = float(request.data['yolo_conf'])
+        if 'yolo_iou' in request.data:
+            user.yolo_iou = float(request.data['yolo_iou'])
+        if 'yolo_imgsz' in request.data:
+            user.yolo_imgsz = int(request.data['yolo_imgsz'])
+
+        user.save()
+        return Response({"status": "success"})
 
 class BotHistoryView(APIView):
     permission_classes = [permissions.AllowAny]

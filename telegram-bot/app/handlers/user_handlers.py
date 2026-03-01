@@ -4,7 +4,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, W
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from app.services.api_client import upload_photo_to_api, send_chat_message_to_api, get_bot_profile, get_bot_history
+from app.services.api_client import upload_photo_to_api, send_chat_message_to_api, get_bot_profile, get_bot_history, update_bot_settings
 
 router = Router()
 
@@ -12,6 +12,10 @@ router = Router()
 class ChatStates(StatesGroup):
     active_chat = State()
 
+class SettingsStates(StatesGroup):
+    wait_conf = State()
+    wait_iou = State()
+    wait_imgsz = State()
 
 def get_webapp_keyboard(tg_id: int, msg_id: int = 0):
     webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
@@ -243,34 +247,115 @@ async def handle_text(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Ошибка связи с ИИ. Попробуйте отправить фото заново.")
 
-@router.message(Command("settings"))
-async def cmd_settings(message: Message):
-    profile = await get_bot_profile(message.from_user.id)
-    if not profile or not profile.get('is_linked'):
-        await message.answer("⚠️ Сначала привяжите профиль для настройки ИИ!")
-        return
 
-    # Сюда можно добавить красивую клавиатуру (InlineKeyboardMarkup),
-    # которая будет менять значения. Для хакатона самый быстрый способ -
-    # просто перенаправлять их в WebApp (твой Frontend), где лежат ползунки.
-
-    webapp_url = os.getenv('WEBAPP_URL', 'google.com')
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="⚙️ Открыть панель настроек AI",
-            web_app=WebAppInfo(url=f"{webapp_url}/profile")
-        )]
+def get_settings_keyboard(conf, iou, imgsz):
+    """Генерирует клавиатуру настроек с текущими значениями"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🎯 Уверенность (Conf): {conf}", callback_data="set_conf")],
+        [InlineKeyboardButton(text=f"🔗 Перекрытие (IoU): {iou}", callback_data="set_iou")],
+        [InlineKeyboardButton(text=f"🖼 Детализация (ImgSz): {imgsz}", callback_data="set_imgsz")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_settings")]
     ])
 
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, state: FSMContext):
+    await state.clear()
+    profile = await get_bot_profile(message.from_user.id)
+    if not profile or not profile.get('is_linked'):
+        await message.answer("⚠️ <b>Сначала привяжите профиль!</b>\n\nБез профиля настройки ИИ не сохранятся.",
+                             parse_mode="HTML")
+        return
+
+    conf = profile.get('yolo_conf', 0.25)
+    iou = profile.get('yolo_iou', 0.7)
+    imgsz = profile.get('yolo_imgsz', 640)
+
+    kb = get_settings_keyboard(conf, iou, imgsz)
     text = (
         "🎛 <b>Настройки нейросети FloraAI</b>\n\n"
-        "Здесь вы можете откалибровать алгоритм под свои задачи:\n"
-        "• <b>Уверенность (Conf):</b> влияет на поиск мелких корней.\n"
-        "• <b>Размер (ImgSz):</b> влияет на детализацию (640 или 1024).\n"
-        "• <b>Перекрытие (IoU):</b> влияет на склеивание пересекающихся корней.\n\n"
-        "Нажмите кнопку ниже, чтобы изменить параметры:"
+        "Нажмите на параметр, чтобы изменить его значение:"
     )
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+# --- ОБРАБОТЧИКИ НАЖАТИЙ НА КНОПКИ ---
+
+@router.callback_query(F.data.startswith("set_"))
+async def process_setting_click(callback: CallbackQuery, state: FSMContext):
+    setting_type = callback.data.split("_")[1]  # conf, iou, imgsz
+
+    back_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_settings")]])
+
+    if setting_type == "conf":
+        await state.set_state(SettingsStates.wait_conf)
+        await callback.message.edit_text(
+            "🎯 <b>Уверенность (Conf)</b>\n\nВведите число от 0.05 до 0.95 (например: 0.25):", reply_markup=back_kb,
+            parse_mode="HTML")
+    elif setting_type == "iou":
+        await state.set_state(SettingsStates.wait_iou)
+        await callback.message.edit_text("🔗 <b>Перекрытие (IoU)</b>\n\nВведите число от 0.1 до 0.9 (например: 0.7):",
+                                         reply_markup=back_kb, parse_mode="HTML")
+    elif setting_type == "imgsz":
+        await state.set_state(SettingsStates.wait_imgsz)
+        await callback.message.edit_text("🖼 <b>Детализация (ImgSz)</b>\n\nВведите 480, 640 или 1024:",
+                                         reply_markup=back_kb, parse_mode="HTML")
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_settings")
+async def back_to_settings(callback: CallbackQuery, state: FSMContext):
+    # Если нажали "Назад", отменяем состояние ввода и показываем меню заново
+    await cmd_settings(callback.message, state)
+    await callback.message.delete()
+    await callback.answer()
+
+
+@router.callback_query(F.data == "close_settings")
+async def close_settings(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.delete()
+    await callback.answer("Настройки закрыты")
+
+
+# --- ОБРАБОТЧИКИ ВВОДА ПОЛЬЗОВАТЕЛЯ ---
+
+@router.message(SettingsStates.wait_conf, F.text)
+async def handle_new_conf(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if not (0.05 <= val <= 0.95): raise ValueError
+        await update_bot_settings(message.from_user.id, {"yolo_conf": val})
+        await message.answer("✅ Настройка Conf успешно обновлена!")
+        await cmd_settings(message, state)
+    except ValueError:
+        await message.answer("❌ Ошибка! Введите число от 0.05 до 0.95:")
+
+
+@router.message(SettingsStates.wait_iou, F.text)
+async def handle_new_iou(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(",", "."))
+        if not (0.1 <= val <= 0.9): raise ValueError
+        await update_bot_settings(message.from_user.id, {"yolo_iou": val})
+        await message.answer("✅ Настройка IoU успешно обновлена!")
+        await cmd_settings(message, state)
+    except ValueError:
+        await message.answer("❌ Ошибка! Введите число от 0.1 до 0.9:")
+
+
+@router.message(SettingsStates.wait_imgsz, F.text)
+async def handle_new_imgsz(message: Message, state: FSMContext):
+    try:
+        val = int(message.text)
+        if val not in [480, 640, 1024]: raise ValueError
+        await update_bot_settings(message.from_user.id, {"yolo_imgsz": val})
+        await message.answer("✅ Настройка ImgSz успешно обновлена!")
+        await cmd_settings(message, state)
+    except ValueError:
+        await message.answer("❌ Ошибка! Введите 480, 640 или 1024:")
 
 @router.message(F.text)
 async def handle_text_no_session(message: Message):
