@@ -1,10 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import Message from '../chat/Message';
-import ChatInput from '../chat/ChatInput'; // Теперь импорт по умолчанию сработает
+import ChatInput from '../chat/ChatInput';
+import apiClient from '../../services/apiClient';
 
 const ChatWindow = ({ session }) => {
-  const token = localStorage.getItem('access');
+  const token = localStorage.getItem('authToken');
   const { messages, setMessages, sendMessage, isTyping } = useWebSocket(session?.id, token);
   const messagesEndRef = useRef(null);
 
@@ -13,29 +14,30 @@ const ChatWindow = ({ session }) => {
   };
   useEffect(() => { scrollToBottom(); }, [messages, isTyping]);
 
-  // Загрузка истории
   useEffect(() => {
     const fetchHistory = async () => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${apiUrl}/chat/${session.id}/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!response.ok) return;
-      const history = await response.json();
+      if (!session?.id) return;
 
-      const analysisMessages = [];
-      if (session?.analysis?.original_image) {
-        analysisMessages.push({ role: 'user', content: 'Посмотри на это растение.', image: session.analysis.original_image });
+      try {
+        const history = await apiClient.get(`/chat/${session.id}/`);
+
+        const analysisMessages = [];
+        if (session?.analysis?.original_image) {
+          analysisMessages.push({ role: 'user', content: 'Посмотри на это растение.', image: session.analysis.original_image });
+        }
+        if (session?.analysis?.annotated_image) {
+          analysisMessages.push({ role: 'assistant', content: session.analysis.bot_reply || 'Результаты анализа.', image: session.analysis.annotated_image });
+        }
+
+        setMessages([...analysisMessages, ...history]);
+      } catch (error) {
+        console.error("Ошибка загрузки истории:", error);
       }
-      if (session?.analysis?.annotated_image) {
-        analysisMessages.push({ role: 'assistant', content: session.analysis.bot_reply || 'Результаты анализа.', image: session.analysis.annotated_image });
-      }
-      setMessages([...analysisMessages, ...history]);
     };
-    if (session?.id) fetchHistory();
-  }, [session?.id, token, setMessages]);
 
-  // НОВОЕ: Обработка отправки (текст через сокет, фото через POST)
+    fetchHistory();
+  }, [session?.id, setMessages]);
+
   const handleSend = async (text, file) => {
     if (file) {
       const formData = new FormData();
@@ -43,11 +45,16 @@ const ChatWindow = ({ session }) => {
       formData.append('message', text);
       formData.append('image', file);
 
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/chat/`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        await fetch(`${apiUrl}/chat/`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+      } catch (error) {
+        console.error("Ошибка отправки фото:", error);
+      }
     } else {
       sendMessage(text);
     }
@@ -56,6 +63,9 @@ const ChatWindow = ({ session }) => {
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.length === 0 && !isTyping && (
+          <div className="text-center text-gray-500 mt-10">Загрузка сообщений...</div>
+        )}
         {messages.map((msg, idx) => (
           <Message key={idx} role={msg.role} content={msg.content} image={msg.image} />
         ))}

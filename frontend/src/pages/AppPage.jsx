@@ -70,10 +70,12 @@ export const AppPage = () => {
             setActiveChatId(id);
             setIsSidebarOpen(false);
           }}
-        onDeleteChat={handleOpenDeleteModal} 
+          onDeleteChat={handleOpenDeleteModal}
         />
         <main className="flex-1 flex flex-col">
+          {/* Добавлен key, чтобы компонент ChatWindow полностью обновлялся при смене чата */}
           <ChatWindow
+            key={activeChatId || 'new'}
             chatLogic={chatLogic}
           />
         </main>
@@ -85,7 +87,7 @@ export const AppPage = () => {
           className="fixed inset-0 bg-black/50 z-20 md:hidden"
         />
       )}
-      
+
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}
         onClose={handleCloseDeleteModal}
