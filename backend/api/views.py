@@ -217,66 +217,55 @@ class ChatAPIView(APIView):
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
         session = get_object_or_404(ChatSession, id=session_id, user=user)
+
+        # --- 1. МГНОВЕННО СОХРАНЯЕМ ФОТО ---
         chat_msg = ChatMessage.objects.create(session=session, role='user', content=message)
-
-        bot_reply_text = ""
-        bot_image_url = None
         user_image_url = None
-
         if image:
             chat_msg.image = image
             chat_msg.save()
             user_image_url = request.build_absolute_uri(chat_msg.image.url)
 
+        # --- 2. МГНОВЕННО ТРАНСЛИРУЕМ ФОТО НА САЙТ (Без ожидания ИИ!) ---
+        channel_layer = get_channel_layer()
+        room_group_name = f'chat_{session.id}'
+        async_to_sync(channel_layer.group_send)(
+            room_group_name,
+            {'type': 'chat_message', 'role': 'user', 'message': message, 'image': user_image_url}
+        )
+
+        bot_reply_text = ""
+
+        # --- 3. АНАЛИЗ ИЛИ ОБЩЕНИЕ ---
+        if image:
             user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
             user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
             user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
 
             image.seek(0)
-            ml_data, annotated_content = analyze_plant_image(image, user_conf, user_iou, user_imgsz)
-
-            if annotated_content:
-                # Прячем разметку в скрытое поле!
-                chat_msg.annotated_image.save(annotated_content.name, annotated_content, save=True)
+            # Получаем только текст, игнорируем картинку-разметку
+            ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz)
 
             bot_reply_text = (
                 f"✅ Фото проанализировано!\n\n"
                 f"🌿 Культура: {ml_data.get('plant_type', 'Неизвестно')}\n"
-                f"📏 Площадь: {ml_data.get('leaf_area_cm2', 0)} см²\n\n"
-                f"💡 Напишите «покажи разметку», чтобы получить фото с найденными зонами."
+                f"📏 Площадь: {ml_data.get('leaf_area_cm2', 0)} см²\n"
             )
-            bot_msg = ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
-
+            ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
         else:
-            # 2. ПРОВЕРЯЕМ ФРАЗУ-ПАСХАЛКУ
-            if "покажи разметку" in message.lower() or "покажи фото" in message.lower():
-                last_photo = ChatMessage.objects.filter(session=session, annotated_image__isnull=False).order_by(
-                    '-created_at').first()
-                if last_photo:
-                    bot_reply_text = "Вот результаты визуальной разметки нейросети:"
-                    bot_msg = ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
-                    bot_msg.image = last_photo.annotated_image
-                    bot_msg.save()
-                    bot_image_url = request.build_absolute_uri(bot_msg.image.url)
-                else:
-                    bot_reply_text = "В этом чате еще нет фотографий с разметкой."
-                    bot_msg = ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
-            else:
-                metrics = session.analysis.metrics if session.analysis else {}
-                prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
-                past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
-                bot_reply_text = get_agronomist_reply(prompt, past, message)
-                bot_msg = ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
+            metrics = session.analysis.metrics if session.analysis else {}
+            prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
+            past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
+            bot_reply_text = get_agronomist_reply(prompt, past, message)
+            ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
 
-        channel_layer = get_channel_layer()
-        room_group_name = f'chat_{session.id}'
-        async_to_sync(channel_layer.group_send)(room_group_name,
-                                                {'type': 'chat_message', 'role': 'user', 'message': message,
-                                                 'image': user_image_url})
-        async_to_sync(channel_layer.group_send)(room_group_name,
-                                                {'type': 'chat_message', 'role': 'assistant', 'message': bot_reply_text,
-                                                 'image': bot_image_url})
+        # --- 4. ТРАНСЛИРУЕМ ОТВЕТ ИИ НА САЙТ ---
+        async_to_sync(channel_layer.group_send)(
+            room_group_name,
+            {'type': 'chat_message', 'role': 'assistant', 'message': bot_reply_text, 'image': None}
+        )
 
+        # --- 5. ДУБЛИРУЕМ ДЕЙСТВИЯ В ТГ (Если писали с сайта) ---
         if not is_from_bot and user.telegram_id:
             bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
             if bot_token:
@@ -285,20 +274,13 @@ class ChatAPIView(APIView):
                 try:
                     requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
                                   json={"chat_id": user.telegram_id, "text": f"💻 Вы (на сайте):\n{u_text}"}, timeout=5)
-                    if bot_image_url and bot_msg.image:
-                        files = {'photo': bot_msg.image.open('rb')}
-                        requests.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                                      data={"chat_id": user.telegram_id, "caption": f"🧑‍🌾 Агроном:\n{bot_reply_text}"},
-                                      files=files, timeout=5)
-                    else:
-                        requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                      json={"chat_id": user.telegram_id, "text": f"🧑‍🌾 Агроном:\n{bot_reply_text}"},
-                                      timeout=5)
+                    requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                  json={"chat_id": user.telegram_id, "text": f"🧑‍🌾 Агроном:\n{bot_reply_text}"},
+                                  timeout=5)
                 except Exception:
                     pass
 
-        return Response({"reply": bot_reply_text, "session_id": session.id, "image_url": bot_image_url})
-
+        return Response({"reply": bot_reply_text, "session_id": session.id})
 # --- 4. ИСТОРИЯ КОНКРЕТНОГО ЧАТА ---
 class ChatDetailAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]

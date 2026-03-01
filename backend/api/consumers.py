@@ -52,28 +52,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         session = ChatSession.objects.get(id=self.session_id)
         ChatMessage.objects.create(session=session, role='user', content=message)
 
-        # --- ЛОГИКА: ЗАПРОС РАЗМЕТКИ ---
-        if "покажи разметку" in message.lower() or "покажи фото" in message.lower():
-            last_photo = ChatMessage.objects.filter(session=session, annotated_image__isnull=False).order_by(
-                '-created_at').first()
-            if last_photo:
-                bot_reply = "Вот результаты визуального анализа нейросети:"
-                bot_msg = ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
-                bot_msg.image = last_photo.annotated_image  # Достаем из заначки
-                bot_msg.save()
-                return bot_reply, bot_msg.image.url, bot_msg.image.path
-            else:
-                bot_reply = "В этом чате еще нет проанализированных фотографий."
-                ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
-                return bot_reply, None, None
-
-        # --- ОБЫЧНЫЙ ОТВЕТ GPT ---
         metrics = session.analysis.metrics if session.analysis else {}
         prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
         past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
 
         answer = get_agronomist_reply(prompt, past, message)
         ChatMessage.objects.create(session=session, role='assistant', content=answer)
+
         return answer, None, None
 
     @sync_to_async
