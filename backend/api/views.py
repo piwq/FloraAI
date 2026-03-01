@@ -206,8 +206,10 @@ class ChatAPIView(APIView):
         session_id = request.data.get('session_id')
         message = request.data.get('message', '')
         telegram_id = request.data.get('telegram_id')
+        image = request.FILES.get('image')  # Ловим картинку из ТГ
 
-        if not session_id or not message:
+        # Проверяем, что есть хотя бы текст ИЛИ картинка
+        if not session_id or (not message and not image):
             return Response({"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         user = None
@@ -221,7 +223,12 @@ class ChatAPIView(APIView):
 
         session = get_object_or_404(ChatSession, id=session_id, user=user)
 
-        ChatMessage.objects.create(session=session, role='user', content=message)
+        chat_msg = ChatMessage.objects.create(session=session, role='user', content=message)
+        if image:
+            chat_msg.image = image
+            chat_msg.save()
+
+        image_url = request.build_absolute_uri(chat_msg.image.url) if chat_msg.image else None
 
         metrics = session.analysis.metrics if session.analysis else {}
         system_prompt = (
@@ -236,21 +243,17 @@ class ChatAPIView(APIView):
 
         ChatMessage.objects.create(session=session, role='assistant', content=answer)
 
-        # --- НОВОЕ: Транслируем сообщения из ТГ прямо на открытый сайт ---
         channel_layer = get_channel_layer()
-        # Имя группы должно совпадать с тем, что мы задавали в consumers.py (chat_ID)
         room_group_name = f'chat_{session.id}'
 
-        # Отправляем вопрос пользователя (на сайт)
         async_to_sync(channel_layer.group_send)(
             room_group_name,
-            {'type': 'chat_message', 'role': 'user', 'message': message}
+            {'type': 'chat_message', 'role': 'user', 'message': message, 'image': image_url}
         )
 
-        # Отправляем ответ ИИ (на сайт)
         async_to_sync(channel_layer.group_send)(
             room_group_name,
-            {'type': 'chat_message', 'role': 'assistant', 'message': answer}
+            {'type': 'chat_message', 'role': 'assistant', 'message': answer, 'image': None}
         )
 
         return Response({"reply": answer, "session_id": session.id})
@@ -263,7 +266,11 @@ class ChatDetailAPIView(APIView):
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
         messages = session.messages.all().order_by('created_at')
         return Response([
-            {"role": m.role, "content": m.content} for m in messages
+            {
+                "role": m.role,
+                "content": m.content,
+                "image": request.build_absolute_uri(m.image.url) if m.image else None
+            } for m in messages
         ])
 
     def delete(self, request, session_id):

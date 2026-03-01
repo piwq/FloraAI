@@ -57,9 +57,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
             'role': event['role'],
-            'message': event['message']
+            'message': event['message'],
+            'image': event.get('image')
         }))
-
 
     @sync_to_async
     def verify_session_access(self):

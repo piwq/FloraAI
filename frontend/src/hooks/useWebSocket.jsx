@@ -18,13 +18,13 @@ export const useWebSocket = (sessionId, token) => {
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === 'chat_message') {
-        setMessages((prev) => [...prev, { role: data.role, content: data.message }]);
-        if (data.role === 'assistant') {
-          setIsTyping(false); // ИИ ответил, выключаем индикатор
-        }
-      }
-    };
+      if (data.role) {
+            setMessages((prev) => [...prev, { role: data.role, content: data.message, image: data.image }]);
+            if (data.role === 'assistant') {
+              setIsTyping(false);
+            }
+          }
+        };
 
     ws.current.onclose = () => console.log('WebSocket Disconnected');
 

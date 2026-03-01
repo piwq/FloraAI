@@ -261,6 +261,37 @@ async def handle_photo(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Произошла ошибка на сервере. Попробуйте позже.")
 
+@router.message(ChatStates.active_chat, F.photo)
+async def handle_chat_photo(message: Message, state: FSMContext):
+    state_data = await state.get_data()
+    session_id = state_data.get('session_id')
+
+    if not session_id:
+        return
+
+    wait_msg = await message.answer("Пересылаю фото в чат... ⏳")
+
+    photo = message.photo[-1]
+    file_info = await message.bot.get_file(photo.file_id)
+    photo_bytes = await message.bot.download_file(file_info.file_path)
+
+    # Пересылаем в активный чат с подписью (или без неё)
+    data, status = await send_chat_message_to_api(
+        telegram_id=message.from_user.id,
+        message=message.caption or "",
+        session_id=session_id,
+        photo_bytes=photo_bytes.read(),
+        filename="chat_photo.jpg"
+    )
+
+    await wait_msg.delete()
+
+    if status == 200:
+        raw_reply = data.get('reply', '...')
+        formatted_reply = format_llm_to_html(raw_reply)
+        await message.answer(formatted_reply, parse_mode="HTML")
+    else:
+        await message.answer("❌ Ошибка связи с сервером.")
 
 @router.message(ChatStates.active_chat, F.text)
 async def handle_text(message: Message, state: FSMContext):

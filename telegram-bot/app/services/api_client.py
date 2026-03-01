@@ -15,15 +15,20 @@ async def upload_photo_to_api(telegram_id: int, photo_bytes: bytes, filename: st
             return await resp.json(), resp.status
 
 
-async def send_chat_message_to_api(telegram_id: int, message: str, session_id: int):
-    """Отправляет текст в уже существующий чат (по session_id)"""
+async def send_chat_message_to_api(telegram_id: int, message: str, session_id: int, photo_bytes: bytes = None,
+                                   filename: str = None):
     async with aiohttp.ClientSession() as session:
-        json_data = {
-            "telegram_id": telegram_id,
-            "message": message,
-            "session_id": session_id
-        }
-        async with session.post(f"{BASE_URL}/chat/", json=json_data) as resp:
+        data = aiohttp.FormData()
+        data.add_field('telegram_id', str(telegram_id))
+        data.add_field('session_id', str(session_id))
+
+        if message:
+            data.add_field('message', message)
+
+        if photo_bytes:
+            data.add_field('image', photo_bytes, filename=filename)
+
+        async with session.post(f"{BASE_URL}/chat/", data=data) as resp:
             return await resp.json(), resp.status
 
 async def get_bot_profile(telegram_id: int):

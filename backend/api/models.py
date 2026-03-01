@@ -59,4 +59,5 @@ class ChatMessage(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name='messages')
     role = models.CharField(max_length=15, choices=ROLE_CHOICES)
     content = models.TextField()
+    image = models.ImageField(upload_to='chat_images/', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
