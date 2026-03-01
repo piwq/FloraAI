@@ -73,9 +73,9 @@ export const AppPage = () => {
           onDeleteChat={handleOpenDeleteModal}
         />
         <main className="flex-1 flex flex-col">
-          {/* Добавлен key, чтобы компонент ChatWindow полностью обновлялся при смене чата */}
           <ChatWindow
             key={activeChatId || 'new'}
+            activeChatId={activeChatId}
             chatLogic={chatLogic}
           />
         </main>

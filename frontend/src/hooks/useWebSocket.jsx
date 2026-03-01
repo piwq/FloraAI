@@ -8,11 +8,10 @@ export const useWebSocket = (sessionId, token) => {
   useEffect(() => {
     if (!sessionId || !token) return;
 
-    // Подключаемся по нативному протоколу ws:// или wss://
-    // Замени URL на свой, если он отличается
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
-    ws.current = new WebSocket(`${wsUrl}/ws/chat/${sessionId}/?token=${token}`);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
 
+    ws.current = new WebSocket(`${wsUrl}/ws/chat/${sessionId}/?token=${token}`);
     ws.current.onopen = () => console.log('WebSocket Connected');
 
     ws.current.onmessage = (event) => {
