@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import Message from '../chat/Message';
-import ChatInput from '../chat/ChatInput';
+import ChatInput from '../chat/ChatInput'; // Теперь импорт по умолчанию сработает
 
 const ChatWindow = ({ session }) => {
   const token = localStorage.getItem('access');
@@ -13,6 +13,7 @@ const ChatWindow = ({ session }) => {
   };
   useEffect(() => { scrollToBottom(); }, [messages, isTyping]);
 
+  // Загрузка истории
   useEffect(() => {
     const fetchHistory = async () => {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -24,25 +25,33 @@ const ChatWindow = ({ session }) => {
 
       const analysisMessages = [];
       if (session?.analysis?.original_image) {
-        analysisMessages.push({
-          role: 'user',
-          content: 'Посмотри на это растение.',
-          image: session.analysis.original_image
-        });
+        analysisMessages.push({ role: 'user', content: 'Посмотри на это растение.', image: session.analysis.original_image });
       }
       if (session?.analysis?.annotated_image) {
-        analysisMessages.push({
-          role: 'assistant',
-          content: session.analysis.bot_reply || 'Вот результаты моего анализа.',
-          image: session.analysis.annotated_image
-        });
+        analysisMessages.push({ role: 'assistant', content: session.analysis.bot_reply || 'Результаты анализа.', image: session.analysis.annotated_image });
       }
-
       setMessages([...analysisMessages, ...history]);
     };
-
     if (session?.id) fetchHistory();
   }, [session?.id, token, setMessages]);
+
+  // НОВОЕ: Обработка отправки (текст через сокет, фото через POST)
+  const handleSend = async (text, file) => {
+    if (file) {
+      const formData = new FormData();
+      formData.append('session_id', session.id);
+      formData.append('message', text);
+      formData.append('image', file);
+
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/chat/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+    } else {
+      sendMessage(text);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm">
@@ -50,14 +59,11 @@ const ChatWindow = ({ session }) => {
         {messages.map((msg, idx) => (
           <Message key={idx} role={msg.role} content={msg.content} image={msg.image} />
         ))}
-        {isTyping && (
-          <div className="text-gray-400 text-sm italic">Агроном печатает...</div>
-        )}
+        {isTyping && <div className="text-gray-400 text-sm italic">Агроном печатает...</div>}
         <div ref={messagesEndRef} />
       </div>
-
       <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-        <ChatInput onSend={sendMessage} disabled={isTyping} />
+        <ChatInput onSendMessage={handleSend} isLoading={isTyping} />
       </div>
     </div>
   );

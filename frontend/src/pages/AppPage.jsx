@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast'; 
 import { Header } from '@/components/app/Header';
 import { Sidebar } from '@/components/app/Sidebar';
-import { ChatWindow } from '@/components/app/ChatWindow';
+import ChatWindow from '@/components/app/ChatWindow';
 import { useChat } from '@/hooks/useChat';
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'; 
 import { deleteChatSession } from '@/services/apiClient';

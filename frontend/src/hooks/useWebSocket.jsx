@@ -17,7 +17,6 @@ export const useWebSocket = (sessionId, token) => {
 
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-
       if (data.role) {
             setMessages((prev) => [...prev, { role: data.role, content: data.message, image: data.image }]);
             if (data.role === 'assistant') {

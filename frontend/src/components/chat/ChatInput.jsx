@@ -170,3 +170,5 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
     </div>
   );
 };
+
+export default ChatInput;
