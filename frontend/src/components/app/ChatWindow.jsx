@@ -1,60 +1,66 @@
-import React, { useRef, useEffect } from 'react';
-import { Message } from '../chat/Message';
-import { ChatInput } from '../chat/ChatInput';
-import { TypingIndicator } from '../chat/TypingIndicator';
-import { Loader2, Sprout } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import Message from '../chat/Message';
+import ChatInput from '../chat/ChatInput';
 
-export const ChatWindow = ({ chatLogic }) => {
-  const { messages, isLoading, isHistoryLoading, sendMessage } = chatLogic;
+const ChatWindow = ({ session }) => {
+  const token = localStorage.getItem('access');
+  const { messages, setMessages, sendMessage, isTyping } = useWebSocket(session?.id, token);
   const messagesEndRef = useRef(null);
 
-  const isNewChat = messages.length === 0;
-
-  const EmptyState = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fade-in-down">
-      <div className="w-24 h-24 bg-accent-ai/10 rounded-full flex items-center justify-center mb-6">
-        <Sprout size={48} className="text-accent-ai"/>
-      </div>
-      <h2 className="font-headings text-3xl font-bold mb-3">Ваш цифровой Агроном</h2>
-      <p className="text-text-secondary max-w-md text-lg">
-        Загрузите фотографию растения ниже, чтобы получить анализ метрик роста и персональные рекомендации по уходу.
-      </p>
-    </div>
-  );
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+  useEffect(() => { scrollToBottom(); }, [messages, isTyping]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+    const fetchHistory = async () => {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const response = await fetch(`${apiUrl}/chat/${session.id}/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) return;
+      const history = await response.json();
+
+      const analysisMessages = [];
+      if (session?.analysis?.original_image) {
+        analysisMessages.push({
+          role: 'user',
+          content: 'Посмотри на это растение.',
+          image: session.analysis.original_image
+        });
+      }
+      if (session?.analysis?.annotated_image) {
+        analysisMessages.push({
+          role: 'assistant',
+          content: session.analysis.bot_reply || 'Вот результаты моего анализа.',
+          image: session.analysis.annotated_image
+        });
+      }
+
+      setMessages([...analysisMessages, ...history]);
+    };
+
+    if (session?.id) fetchHistory();
+  }, [session?.id, token, setMessages]);
 
   return (
-    <div className="flex flex-col h-full bg-background overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
-        {isNewChat && !isHistoryLoading && !isLoading ? (
-          <EmptyState />
-        ) : (
-          <div className="p-6 space-y-6">
-            {isHistoryLoading ? (
-              <div className="flex justify-center items-center h-full pt-20">
-                <Loader2 className="animate-spin text-accent-ai" size={32}/>
-              </div>
-            ) : (
-              <>
-                {messages.map((msg, index) => (
-                    <Message key={msg.id || index} {...msg} />
-                ))}
-                {isLoading && <TypingIndicator />}
-              </>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, idx) => (
+          <Message key={idx} role={msg.role} content={msg.content} image={msg.image} />
+        ))}
+        {isTyping && (
+          <div className="text-gray-400 text-sm italic">Агроном печатает...</div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
-      <ChatInput
-        onSendMessage={sendMessage}
-        isLoading={isLoading || isHistoryLoading}
-        requirePhotoFirst={isNewChat}
-      />
+      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+        <ChatInput onSend={sendMessage} disabled={isTyping} />
+      </div>
     </div>
   );
 };
+
+export default ChatWindow;

@@ -3,10 +3,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from django.core.files.base import ContentFile
 from .models import PlantAnalysis, ChatMessage, ChatSession
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
-import json, os, urllib.request, requests, base64
+import os
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+
+from .services.ml_client import analyze_plant_image
+from .services.yandex_gpt_client import get_agronomist_reply
 
 User = get_user_model()
 
@@ -26,10 +30,8 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
     def update(self, request, *args, **kwargs):
-        # Копируем данные, чтобы можно было их изменить
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
 
-        # Если юзер очистил дату, в БД пишем None
         if data.get('birthDate') == '':
             data['birthDate'] = None
 
@@ -89,7 +91,6 @@ class LinkTelegramView(APIView):
         user.telegram_username = username
         user.save()
 
-        # ОТПРАВЛЯЕМ НОВУЮ ИНСТРУКЦИЮ В БОТ (ИСПРАВЛЕНО ФОРМАТИРОВАНИЕ)
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         if bot_token:
             import requests
@@ -107,22 +108,12 @@ class LinkTelegramView(APIView):
                 "👤 Используйте команду /me для просмотра профиля."
             )
             try:
-                # ВАЖНО: parse_mode изменен на HTML
                 requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
                               json={"chat_id": tg_id_int, "text": msg, "parse_mode": "HTML"}, timeout=5)
             except Exception:
                 pass
 
         return Response({"status": "success"})
-
-class MockSubscribeView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        user.is_premium = True
-        user.save()
-        return Response({"status": "success", "message": "Premium подписка успешно активирована!"})
 
 
 # --- 2. АНАЛИЗ ФОТОГРАФИЙ ---
@@ -157,46 +148,13 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             if PlantAnalysis.objects.filter(user=user).count() >= 3:
                 return Response({"error": "limit_reached"}, status=403)
 
-        image.seek(0)
-        files = {'file': (image.name, image.read(), image.content_type)}
-
         user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
         user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
         user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
 
-        data_payload = {
-            'conf': user_conf,
-            'iou': user_iou,
-            'imgsz': user_imgsz
-        }
-
-        ml_data = {
-            "plant_type": "Неизвестно",
-            "leaf_area_cm2": 0,
-            "root_length_mm": 0,
-            "stem_length_mm": 0
-        }
-        annotated_image_content = None
-
-        try:
-            ml_response = requests.post(
-                "http://flora_ml:8001/predict",
-                files=files,
-                data=data_payload,
-                timeout=40
-            )
-            if ml_response.status_code == 200:
-                response_json = ml_response.json()
-
-                img_b64 = response_json.pop('annotated_image_base64', None)
-                if img_b64:
-                    image_data = base64.b64decode(img_b64)
-                    annotated_image_content = ContentFile(image_data, name=f"annotated_{image.name}")
-
-                ml_data = response_json
-        except Exception as e:
-            print(f"ML Error: {e}")
-
+        # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
+        image.seek(0)
+        ml_data, annotated_image_content = analyze_plant_image(image, user_conf, user_iou, user_imgsz)
         image.seek(0)
 
         analysis = PlantAnalysis.objects.create(
@@ -273,42 +231,29 @@ class ChatAPIView(APIView):
             f"Отвечай кратко, экспертно и давай полезные советы по уходу."
         )
 
-        api_key = os.getenv("YANDEX_API_KEY")
-        folder_id = os.getenv("YANDEX_FOLDER_ID")
+        past_messages = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
+        answer = get_agronomist_reply(system_prompt, past_messages, message)
 
-        if not api_key or not folder_id:
-            answer = f"Ответ (Заглушка). Нейросеть отключена. Вы спросили: {message}"
-            ChatMessage.objects.create(session=session, role='assistant', content=answer)
-            return Response({"reply": answer, "session_id": session.id})
+        ChatMessage.objects.create(session=session, role='assistant', content=answer)
 
-        past_messages = ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]
-        past_messages = reversed(past_messages)
+        # --- НОВОЕ: Транслируем сообщения из ТГ прямо на открытый сайт ---
+        channel_layer = get_channel_layer()
+        # Имя группы должно совпадать с тем, что мы задавали в consumers.py (chat_ID)
+        room_group_name = f'chat_{session.id}'
 
-        yandex_messages = [{"role": "system", "text": system_prompt}]
-        for msg in past_messages:
-            yandex_messages.append({"role": msg.role, "text": msg.content})
+        # Отправляем вопрос пользователя (на сайт)
+        async_to_sync(channel_layer.group_send)(
+            room_group_name,
+            {'type': 'chat_message', 'role': 'user', 'message': message}
+        )
 
-        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-        headers = {"Content-Type": "application/json", "Authorization": f"Api-Key {api_key}"}
-        data = {
-            "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
-            "completionOptions": {"temperature": 0.3, "maxTokens": 1000},
-            "messages": yandex_messages
-        }
+        # Отправляем ответ ИИ (на сайт)
+        async_to_sync(channel_layer.group_send)(
+            room_group_name,
+            {'type': 'chat_message', 'role': 'assistant', 'message': answer}
+        )
 
-        try:
-            import urllib.request
-            import json
-            req = urllib.request.Request(url, headers=headers, data=json.dumps(data).encode())
-            with urllib.request.urlopen(req) as res:
-                response_json = json.loads(res.read())
-                answer = response_json['result']['alternatives'][0]['message']['text']
-
-                # Сохраняем ответ ИИ
-                ChatMessage.objects.create(session=session, role='assistant', content=answer)
-                return Response({"reply": answer, "session_id": session.id})
-        except Exception as e:
-            return Response({"reply": f"⚠️ Ошибка связи с Яндекс: {str(e)}"}, status=500)
+        return Response({"reply": answer, "session_id": session.id})
 
 # --- 4. ИСТОРИЯ КОНКРЕТНОГО ЧАТА ---
 class ChatDetailAPIView(APIView):
@@ -323,9 +268,7 @@ class ChatDetailAPIView(APIView):
 
     def delete(self, request, session_id):
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
-
         session.delete()
-
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 class MockSubscribeView(APIView):
@@ -357,14 +300,12 @@ class BotProfileView(APIView):
             "username": user.telegram_username,
             "subscription": "PREMIUM" if user.is_premium else "FREE",
             "analyses_count": analyses_count,
-            # Отдаем настройки ИИ боту
             "yolo_conf": user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25,
             "yolo_iou": user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7,
             "yolo_imgsz": user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
         })
 
     def patch(self, request):
-        # Метод для сохранения настроек, которые пришлет бот
         tg_id = request.data.get('telegram_id')
         if not tg_id:
             return Response({"error": "Missing telegram_id"}, status=400)
