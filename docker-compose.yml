@@ -67,6 +67,14 @@ services:
       - backend
       - redis-cache
 
+  ml-backend:
+      build: ./ml-service
+      container_name: flora_ml
+      restart: always
+      ports:
+        - "8001:8001"
+      networks:
+        - flora_net
 volumes:
   postgres_data:
   redis_data:
@@ -74,3 +82,4 @@ volumes:
 networks:
   flora_net:
     driver: bridge
+

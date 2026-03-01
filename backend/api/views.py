@@ -3,10 +3,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from django.core.files.base import ContentFile
 from .models import PlantAnalysis, ChatMessage, ChatSession
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
-import json, os, urllib.request
-import requests
+import json, os, urllib.request, requests, base64
 
 User = get_user_model()
 
@@ -158,25 +158,64 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             if PlantAnalysis.objects.filter(user=user).count() >= 3:
                 return Response({"error": "limit_reached"}, status=403)
 
-        # 1. Создаем анализ
+        # 1. Отправляем фото в ML-микросервис
+        image.seek(0)
+        files = {'file': (image.name, image.read(), image.content_type)}
+        ml_data = {
+            "plant_type": "Неизвестно",
+            "leaf_area_cm2": 0,
+            "root_length_mm": 0,
+            "stem_length_mm": 0
+        }
+        annotated_image_content = None
+
+        try:
+            # Стучимся в контейнер flora_ml
+            ml_response = requests.post("http://flora_ml:8001/predict", files=files, timeout=40)
+            if ml_response.status_code == 200:
+                response_json = ml_response.json()
+
+                # Извлекаем картинку Base64 из ответа (и удаляем её из словаря с метриками)
+                img_b64 = response_json.pop('annotated_image_base64', None)
+                if img_b64:
+                    # Декодируем Base64 обратно в бинарный файл картинки
+                    image_data = base64.b64decode(img_b64)
+                    annotated_image_content = ContentFile(image_data, name=f"annotated_{image.name}")
+
+                # Сохраняем оставшиеся чистые метрики
+                ml_data = response_json
+        except Exception as e:
+            print(f"ML Error: {e}")
+
+        image.seek(0)  # Обязательно перематываем оригинальный файл обратно для сохранения в БД
+
+        # 2. Создаем запись анализа в БД
         analysis = PlantAnalysis.objects.create(
-            user=user, original_image=image, status='COMPLETED',
-            metrics={"plant_type": "Arugula (Руккола)", "leaf_area_cm2": 15.4, "root_length_mm": 120.5}
+            user=user,
+            original_image=image,
+            status='COMPLETED',
+            metrics=ml_data
         )
 
-        # 2. ВСЕГДА создаем сессию (для ТГ это критично)
+        # Если ML-сервис вернул картинку с масками — сохраняем её в новое поле
+        if annotated_image_content:
+            analysis.annotated_image.save(annotated_image_content.name, annotated_image_content, save=True)
+
+        # 3. Создаем сессию чата (для ТГ это критично)
         session = ChatSession.objects.create(user=user, analysis=analysis)
 
         bot_reply = (
             f"✅ **Анализ завершен!**\n\n"
-            f"🌿 Культура: {analysis.metrics['plant_type']}\n"
-            f"📏 Площадь листьев: {analysis.metrics['leaf_area_cm2']} см²"
+            f"🌿 Культура: {analysis.metrics.get('plant_type', 'Неизвестно')}\n"
+            f"📏 Площадь листьев: {analysis.metrics.get('leaf_area_cm2', 0)} см²\n"
+            f"📏 Длина корня: {analysis.metrics.get('root_length_mm', 0)} мм\n"
+            f"📏 Длина стебля: {analysis.metrics.get('stem_length_mm', 0)} мм"
         )
 
-        # Сохраняем в историю
+        # Сохраняем в историю чата
         ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
 
-        # 3. Формируем ответ
+        # 4. Формируем ответ для API
         response_data = self.get_serializer(analysis).data
         response_data['session_id'] = session.id
         response_data['bot_reply'] = bot_reply

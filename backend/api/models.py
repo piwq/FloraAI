@@ -25,6 +25,7 @@ class PlantAnalysis(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='analyses')
     original_image = models.ImageField(upload_to='plants/originals/')
     result_image = models.ImageField(upload_to='plants/results/', null=True, blank=True)
+    annotated_image = models.ImageField(upload_to='analyses/annotated/', null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     metrics = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
