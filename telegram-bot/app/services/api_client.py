@@ -73,3 +73,9 @@ async def delete_bot_session(telegram_id: int, session_id: str):
         except Exception as e:
             print(f"Ошибка удаления: {e}")
             return False
+
+async def set_active_session(telegram_id: int, session_id: int = None):
+    async with aiohttp.ClientSession() as session:
+        payload = {"telegram_id": telegram_id, "session_id": session_id}
+        async with session.post(f"{BASE_URL}/chat/set_active/", json=payload) as resp:
+            return resp.status == 200

@@ -387,3 +387,16 @@ class LogoutView(APIView):
     permission_classes = [permissions.AllowAny]
     def post(self, request):
         return Response({"status": "success"})
+
+class SetActiveSessionView(APIView):
+    permission_classes = [permissions.AllowAny]
+    def post(self, request):
+        telegram_id = request.data.get('telegram_id')
+        session_id = request.data.get('session_id')
+
+        user = User.objects.filter(telegram_id=telegram_id).first()
+        if user:
+            user.active_tg_session_id = session_id
+            user.save()
+            return Response({"status": "ok"})
+        return Response({"error": "User not found"}, status=404)

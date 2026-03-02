@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from app.services.api_client import (
     upload_photo_to_api, send_chat_message_to_api, get_bot_profile,
-    get_bot_history, update_bot_settings, delete_bot_session
+    get_bot_history, update_bot_settings, delete_bot_session, set_active_session
 )
 
 from app.keyboards.inline_keyboards import (
@@ -64,6 +64,7 @@ def format_llm_to_html(text: str) -> str:
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    await set_active_session(message.from_user.id, None)
     profile = await get_bot_profile(message.from_user.id)
     if profile and profile.get('is_linked'):
         text = (
@@ -165,6 +166,7 @@ async def process_activate_chat(callback: CallbackQuery, state: FSMContext):
     session_id = callback.data.split("_")[2]
     await state.update_data(session_id=session_id)
     await state.set_state(ChatStates.active_chat)
+    await set_active_session(message.from_user.id, session_id)
 
     await callback.message.edit_text(
         "✅ <b>Чат переключен!</b>\n\nВы вернулись к старому анализу. Теперь ваши сообщения отправляются в контекст этого растения.",
@@ -244,9 +246,11 @@ async def handle_photo(message: Message, state: FSMContext):
         if is_linked and session_id:
             await state.update_data(session_id=session_id)
             await state.set_state(ChatStates.active_chat)
+            await set_active_session(callback.from_user.id, session_id)
             await message.answer("✍️ Вы можете задать уточняющий вопрос агроному.", parse_mode="HTML")
         else:
             await state.clear()
+            await set_active_session(message.from_user.id, None)
             text = "💡 Чтобы обсудить этот анализ с ИИ и сохранять историю, привяжите аккаунт!"
             sent_msg = await message.answer(text, parse_mode="HTML")
             await sent_msg.edit_reply_markup(
@@ -320,6 +324,7 @@ async def handle_text(message: Message, state: FSMContext):
 
     if not session_id:
         await state.clear()
+        await set_active_session(message.from_user.id, None)
         await message.answer("⚠️ Сессия чата потеряна. Пожалуйста, отправьте новое фото.")
         return
 
@@ -370,6 +375,7 @@ def get_settings_keyboard(conf, iou, imgsz):
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, state: FSMContext):
     await state.clear()
+    await set_active_session(message.from_user.id, None)
     profile = await get_bot_profile(message.from_user.id)
     if not profile or not profile.get('is_linked'):
         await message.answer("⚠️ <b>Сначала привяжите профиль!</b>\n\nБез профиля настройки ИИ не сохранятся.",
@@ -422,6 +428,7 @@ async def back_to_settings(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "close_settings")
 async def close_settings(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    await set_active_session(message.from_user.id, None)
     await callback.message.delete()
     await callback.answer("Настройки закрыты")
 

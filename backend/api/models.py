@@ -4,6 +4,7 @@ from django.contrib.auth.models import AbstractUser
 
 class User(AbstractUser):
     telegram_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    active_tg_session_id = models.IntegerField(null=True, blank=True)
     telegram_username = models.CharField(max_length=150, blank=True, null=True)
     is_premium = models.BooleanField(default=False)
 

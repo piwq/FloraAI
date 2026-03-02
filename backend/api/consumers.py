@@ -96,9 +96,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 return
 
             user = User.objects.get(id=self.user.id)
-            if not user.telegram_id:
-                print(
-                    f"❌ [TG] ОШИБКА: У пользователя (ID: {user.id}, Email: {user.email}) НЕТ привязанного telegram_id в базе данных!")
+            if not user.telegram_id or user.active_tg_session_id != int(self.session_id):
                 return
 
             prefix = "💻 Вы (с сайта):\n" if role == 'user' else "🧑‍🌾 Агроном:\n"

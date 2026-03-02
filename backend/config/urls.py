@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from api.views import (
     ChatAPIView, PlantAnalysisViewSet, RegisterView,
     UserProfileView, ChatDetailAPIView, LinkTelegramView,
-    ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView, LogoutView
+    ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView, LogoutView, SetActiveSessionView
 )
 from django.conf import settings
 from django.conf.urls.static import static
@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/payment/mock-subscribe', MockSubscribeView.as_view(), name='mock-subscribe'),
     path('api/bot/profile/', BotProfileView.as_view(), name='bot-profile'),
     path('api/bot/history/', BotHistoryView.as_view(), name='bot-history'),
+    path('chat/set_active/', SetActiveSessionView.as_view(), name='set_active_session'),
 ]
 
 # ВАЖНО: Учим Django раздавать медиафайлы (картинки)!
