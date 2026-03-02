@@ -3,16 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = [], settings, metrics }) => {
   const [viewBox, setViewBox] = useState('0 0 1000 1000');
   const [hoveredSegment, setHoveredSegment] = useState(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
-  // --- PAN & ZOOM ---
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
 
-  // --- ВИЗУАЛЬНЫЕ ФИЛЬТРЫ ---
   const [imgFilters, setImgFilters] = useState({ brightness: 100, contrast: 100, saturate: 100 });
   const [showFilters, setShowFilters] = useState(false);
 
@@ -67,7 +66,6 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
-  // --- ЛОГИКА СМАРТ-ПАНЕЛИ (Никаких лагов от мышки!) ---
   let inspectorData = null;
   if (hoveredSegment) {
     if (hoveredSegment.category === 'root') {
@@ -81,16 +79,14 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
           title: hoveredSegment.type.includes("Первичный") ? "Стержневая система" : "Латеральная сеть",
           isGroup: true, type: hoveredSegment.type,
           length: totalLength.toFixed(2), thickness: avgThickness.toFixed(3),
-          volume: totalVolume.toFixed(2), count: groupSegments.length,
-          color: '#fbbf24'
+          volume: totalVolume.toFixed(2), count: groupSegments.length, color: '#fbbf24'
         };
       } else {
         inspectorData = {
           title: `Сегмент корня #${hoveredSegment.id}`,
           isGroup: false, type: hoveredSegment.type,
           length: hoveredSegment.length_mm.toFixed(2), thickness: hoveredSegment.thickness_mm.toFixed(3),
-          volume: hoveredSegment.volume_mm3.toFixed(2), count: 1,
-          color: '#fbbf24'
+          volume: hoveredSegment.volume_mm3.toFixed(2), count: 1, color: '#fbbf24'
         };
       }
     } else {
@@ -106,6 +102,9 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
   const totalRootLen = segments.reduce((sum, s) => sum + s.length_mm, 0).toFixed(1);
   const totalRootVol = segments.reduce((sum, s) => sum + s.volume_mm3, 0).toFixed(1);
 
+  // --- HEATMAP: Ищем максимальную толщину корня для нормализации ---
+  const maxThickness = segments.reduce((max, s) => Math.max(max, s.thickness_mm), 0.001);
+
   return (
     <div
       ref={containerRef}
@@ -117,8 +116,6 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
       onMouseLeave={handleMouseUp}
       onDoubleClick={() => { setScale(1); setPosition({x: 0, y: 0}); setImgFilters({ brightness: 100, contrast: 100, saturate: 100 }); }}
     >
-
-      {/* --- КНОПКА ФИЛЬТРОВ (ТЕПЕРЬ АККУРАТНАЯ СПРАВА СВЕРХУ) --- */}
       <div className="filter-panel absolute top-4 right-4 z-30 flex flex-col items-end gap-2 pointer-events-auto">
         <button
           onClick={() => setShowFilters(!showFilters)}
@@ -140,9 +137,7 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
         )}
       </div>
 
-      {/* --- СЛОЙ ТРАНСФОРМАЦИИ --- */}
       <div className="relative transition-transform duration-75 ease-out inline-block" style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${scale})` }}>
-
         <img
           src={imageUrl}
           alt="Plant Analysis"
@@ -152,13 +147,9 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
           onDragStart={(e) => e.preventDefault()}
         />
 
-        <div
-          className="absolute inset-0 bg-black transition-opacity duration-300 pointer-events-none rounded-lg"
-          style={{ opacity: hoveredSegment ? 0.75 : 0 }}
-        />
+        <div className="absolute inset-0 bg-black transition-opacity duration-300 pointer-events-none rounded-lg" style={{ opacity: hoveredSegment ? 0.75 : 0 }} />
 
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox={viewBox} preserveAspectRatio="none">
-          {/* ЛИСТЬЯ */}
           {settings?.show_leaf !== false && leaves.map((leaf) => {
             const pointsStr = leaf.path.map(p => `${p[0]},${p[1]}`).join(' ');
             const leafColor = settings?.color_leaf || '#16A34A';
@@ -167,18 +158,14 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
 
             return (
               <polygon
-                key={`leaf-${leaf.id}`} points={pointsStr}
-                fill={hexToRgba(leafColor, isHovered ? 0.6 : 0.3)}
-                stroke={isHovered ? '#4ade80' : leafColor} strokeWidth={isHovered ? 4 : 2}
-                style={{ opacity }}
+                key={`leaf-${leaf.id}`} points={pointsStr} fill={hexToRgba(leafColor, isHovered ? 0.6 : 0.3)}
+                stroke={isHovered ? '#4ade80' : leafColor} strokeWidth={isHovered ? 4 : 2} style={{ opacity }}
                 className="transition-all duration-300 pointer-events-auto cursor-help"
-                onMouseEnter={() => setHoveredSegment({ ...leaf, category: 'leaf' })}
-                onMouseLeave={() => setHoveredSegment(null)}
+                onMouseEnter={() => setHoveredSegment({ ...leaf, category: 'leaf' })} onMouseLeave={() => setHoveredSegment(null)}
               />
             );
           })}
 
-          {/* СТЕБЛИ */}
           {settings?.show_stem !== false && stems.map((stem) => {
             const pointsStr = stem.path.map(p => `${p[0]},${p[1]}`).join(' ');
             const stemColor = settings?.color_stem || '#2563EB';
@@ -187,25 +174,27 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
 
             return (
               <polygon
-                key={`stem-${stem.id}`} points={pointsStr}
-                fill={hexToRgba(stemColor, isHovered ? 0.7 : 0.4)}
-                stroke={isHovered ? '#60a5fa' : stemColor} strokeWidth={isHovered ? 5 : 3}
-                style={{ opacity }}
+                key={`stem-${stem.id}`} points={pointsStr} fill={hexToRgba(stemColor, isHovered ? 0.7 : 0.4)}
+                stroke={isHovered ? '#60a5fa' : stemColor} strokeWidth={isHovered ? 5 : 3} style={{ opacity }}
                 className="transition-all duration-300 pointer-events-auto cursor-help"
-                onMouseEnter={() => setHoveredSegment({ ...stem, category: 'stem' })}
-                onMouseLeave={() => setHoveredSegment(null)}
+                onMouseEnter={() => setHoveredSegment({ ...stem, category: 'stem' })} onMouseLeave={() => setHoveredSegment(null)}
               />
             );
           })}
 
-          {/* КОРНИ */}
           {settings?.show_root !== false && segments.map((seg) => {
             const pointsStr = seg.path.map(p => `${p[0]},${p[1]}`).join(' ');
             const isPrimary = seg.type.includes("Первичный");
             const baseColor = isPrimary ? (settings?.color_root || '#9333EA') : '#06b6d4';
 
             const isHovered = hoveredSegment && hoveredSegment.category === 'root' && ((!isCtrlPressed && hoveredSegment.id === seg.id) || (isCtrlPressed && hoveredSegment.type === seg.type));
-            const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : 1;
+
+            // 🔥 HEATMAP ЛОГИКА: Вычисляем прозрачность на основе толщины (от 0.3 до 1.0)
+            const thicknessRatio = seg.thickness_mm / maxThickness;
+            const heatAlpha = 0.3 + (0.7 * thicknessRatio);
+
+            // Если кто-то наведен — тускнеем (0.1) или горим (1). Если никто не наведен — работает HEATMAP
+            const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : heatAlpha;
 
             return (
               <g key={`group-${seg.id}`}>
@@ -229,10 +218,8 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
         </svg>
       </div>
 
-      {/* --- СМАРТ-ПАНЕЛЬ (ЕДИНАЯ ТОЧКА ИНФОРМАЦИИ СЛЕВА ВНИЗУ) --- */}
       <div className="smart-panel absolute bottom-4 left-4 z-20 pointer-events-auto transition-all duration-300">
         {inspectorData ? (
-          /* ИНСПЕКТОР СЕГМЕНТА (При наведении) */
           <div className="bg-black/95 text-white text-sm p-4 rounded-xl shadow-2xl border backdrop-blur-md w-72" style={{ borderColor: `${inspectorData.color}50` }}>
             <div className="font-black mb-3 border-b pb-2 tracking-wide flex justify-between items-center gap-2" style={{ color: inspectorData.color, borderColor: `${inspectorData.color}30` }}>
               <span className="uppercase truncate">{inspectorData.title}</span>
@@ -247,16 +234,11 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
             </div>
           </div>
         ) : (
-          /* ГЛОБАЛЬНЫЕ МЕТРИКИ (По умолчанию) */
           <div className="bg-black/85 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white text-xs w-72 shadow-2xl">
             <h4 className="font-bold text-green-400 mb-3 uppercase tracking-wider border-b border-white/20 pb-2">Фито-Метрики</h4>
             <div className="space-y-2">
-              {settings?.show_leaf !== false && (
-                 <div className="flex justify-between text-green-200"><span>Площадь листьев:</span><span className="font-mono font-bold">{metrics?.leaf_area_cm2 || 0} см²</span></div>
-              )}
-              {settings?.show_stem !== false && (
-                 <div className="flex justify-between text-blue-200 border-b border-white/10 pb-2"><span>Длина стебля:</span><span className="font-mono font-bold">{metrics?.stem_length_mm || 0} мм</span></div>
-              )}
+              {settings?.show_leaf !== false && <div className="flex justify-between text-green-200"><span>Площадь листьев:</span><span className="font-mono font-bold">{metrics?.leaf_area_cm2 || 0} см²</span></div>}
+              {settings?.show_stem !== false && <div className="flex justify-between text-blue-200 border-b border-white/10 pb-2"><span>Длина стебля:</span><span className="font-mono font-bold">{metrics?.stem_length_mm || 0} мм</span></div>}
               <div className="flex justify-between pt-1"><span className="text-gray-400">Длина корней:</span><span className="font-mono">{totalRootLen} мм</span></div>
               <div className="flex justify-between"><span className="text-gray-400">Объем биомассы:</span><span className="font-mono font-bold text-yellow-300">{totalRootVol} мм³</span></div>
             </div>
@@ -267,7 +249,6 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
           </div>
         )}
       </div>
-
     </div>
   );
 };
