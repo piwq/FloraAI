@@ -30,3 +30,21 @@ def analyze_plant_image(image_file, conf, iou, imgsz):
         print(f"ML Error: {e}")
 
     return ml_data, annotated_image_content
+
+def get_annotated_image(image_file, conf, iou, imgsz):
+    files = {'file': (image_file.name, image_file.read(), image_file.content_type)}
+    data_payload = {'conf': conf, 'iou': iou, 'imgsz': imgsz}
+
+    try:
+        # Стучимся в наш НОВЫЙ эндпоинт
+        response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=40)
+        if response.status_code == 200:
+            img_b64 = response.json().get('annotated_image_base64')
+            if img_b64:
+                image_data = base64.b64decode(img_b64)
+                # Возвращаем файл, готовый к сохранению в базу Django
+                return ContentFile(image_data, name=f"annotated_{image_file.name}")
+    except Exception as e:
+        print(f"ML Annotate Error: {e}")
+
+    return None

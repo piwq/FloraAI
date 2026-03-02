@@ -49,3 +49,4 @@ class PlantAnalysisSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlantAnalysis
         fields = '__all__'
+

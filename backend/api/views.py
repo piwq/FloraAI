@@ -9,7 +9,7 @@ import os
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .services.ml_client import analyze_plant_image
+from .services.ml_client import analyze_plant_image, get_annotated_image
 from .services.yandex_gpt_client import get_agronomist_reply
 
 User = get_user_model()
@@ -400,3 +400,36 @@ class SetActiveSessionView(APIView):
             user.save()
             return Response({"status": "ok"})
         return Response({"error": "User not found"}, status=404)
+
+# --- НОВЫЙ ЭНДПОИНТ ДЛЯ ПОЛУЧЕНИЯ КАРТИНКИ С РАЗМЕТКОЙ ---
+class AnnotateMessageView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, message_id):
+        # 1. Находим сообщение пользователя, в котором есть картинка
+        message = get_object_or_404(ChatMessage, id=message_id, session__user=request.user)
+
+        if not message.image:
+            return Response({"error": "В этом сообщении нет картинки"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Оптимизация: если мы уже делали разметку для этого фото, просто возвращаем её, не дергая ML
+        if message.annotated_image:
+            return Response({"annotated_image_url": request.build_absolute_uri(message.annotated_image.url)})
+
+        # 3. Достаем настройки пользователя
+        user = request.user
+        user_conf = getattr(user, 'yolo_conf', 0.25)
+        user_iou = getattr(user, 'yolo_iou', 0.7)
+        user_imgsz = getattr(user, 'yolo_imgsz', 1024)
+
+        # 4. Просим ML-сервис нарисовать контуры
+        message.image.seek(0)
+        annotated_file = get_annotated_image(message.image, user_conf, user_iou, user_imgsz)
+
+        # 5. Сохраняем результат в базу и отдаем ссылку фронтенду
+        if annotated_file:
+            message.annotated_image = annotated_file
+            message.save()
+            return Response({"annotated_image_url": request.build_absolute_uri(message.annotated_image.url)})
+
+        return Response({"error": "Не удалось сгенерировать разметку (возможно, ИИ ничего не нашел)"}, status=status.HTTP_400_BAD_REQUEST)

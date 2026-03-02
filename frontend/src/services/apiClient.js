@@ -43,6 +43,8 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   });
 };
 
+export const getAnnotatedImage = (messageId) => apiClient.post(`/chat/message/${messageId}/annotate/`);
+
 // Интеграции и оплата
 export const linkTelegram = (data) => apiClient.post('/auth/telegram/link/', data);
 export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');

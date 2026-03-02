@@ -1,4 +1,4 @@
-import os
+import os, base64
 from fastapi import FastAPI, UploadFile, File, Form
 from ultralytics import YOLO
 import cv2
@@ -76,12 +76,31 @@ async def predict_plant(file: UploadFile = File(...),
             skeleton = skeletonize(mask > 0.5)
             stem_length_px += np.sum(skeleton)
 
-    # Переводим пиксели в реальные единицы измерения
     metrics["leaf_area_cm2"] = float(round(leaf_area_px * CM2_PER_PIXEL, 2))
     metrics["root_length_mm"] = float(round(root_length_px * MM_PER_PIXEL * 1.1, 2))
     metrics["stem_length_mm"] = float(round(stem_length_px * MM_PER_PIXEL * 1.1, 2))
 
-    # --- ОТРИСОВКА ВЫРЕЗАНА ДЛЯ МАКСИМАЛЬНОЙ СКОРОСТИ ---
-    # Возвращаем только сырые данные
-
     return metrics
+
+@app.post("/annotate")
+async def annotate_plant(file: UploadFile = File(...),
+                         conf: float = Form(float(os.getenv("YOLO_CONF", 0.25))),
+                         iou: float = Form(float(os.getenv("YOLO_IOU", 0.7))),
+                         imgsz: int = Form(int(os.getenv("YOLO_IMGSZ", 1024)))): # Укажи тут 1024, если обучал на 1024
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+
+    raw_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    img = cv2.undistort(raw_img, CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
+
+    results = model(img, conf=conf, iou=iou, imgsz=imgsz)[0]
+
+    if results.masks is None:
+        return {"annotated_image_base64": None}
+
+    annotated_frame = results.plot(boxes=False, masks=True)
+
+    _, buffer = cv2.imencode('.jpg', annotated_frame)
+    encoded_image = base64.b64encode(buffer).decode('utf-8')
+
+    return {"annotated_image_base64": encoded_image}
