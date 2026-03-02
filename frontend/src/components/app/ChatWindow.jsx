@@ -3,6 +3,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import Message from '../chat/Message';
 import ChatInput from '../chat/ChatInput';
 import apiClient from '../../services/apiClient';
+import AILabModal from '../chat/AILabModal';
 
 const ChatWindow = ({ activeChatId, chatLogic }) => {
   const session = chatLogic?.currentSession;
@@ -18,6 +19,7 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
   const messagesEndRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const [showLabModal, setShowLabModal] = useState(false);
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -68,6 +70,7 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
       sendMessage(text);
     }
   };
+  const imageMsg = messages.find(m => m.image);
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm">
@@ -92,10 +95,23 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
         <div ref={messagesEndRef} />
       </div>
       <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-        <ChatInput onSendMessage={handleSend} isLoading={isTyping} />
+        <ChatInput
+          onSendMessage={handleSend}
+          isLoading={isTyping}
+          onOpenLab={() => setShowLabModal(true)}
+        />
       </div>
-    </div>
-  );
-};
+      {imageMsg && (
+            <AILabModal
+              isOpen={showLabModal}
+              onClose={() => setShowLabModal(false)}
+              messageId={imageMsg.id}
+              initialImage={imageMsg.image}
+              initialAnnotations={imageMsg.annotations || []}
+            />
+          )}
+        </div>
+      );
+    };
 
 export default ChatWindow;

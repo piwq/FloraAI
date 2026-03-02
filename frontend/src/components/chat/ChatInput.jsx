@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 
-export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
+export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst, onOpenLab }) => {
   const [message, setMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -122,47 +122,35 @@ export const ChatInput = ({ onSendMessage, isLoading, requirePhotoFirst }) => {
     );
   }
 
-  // --- СОСТОЯНИЕ 2: ОБЫЧНЫЙ ЧАТ (ТЕКСТ + СКРЕПКА) ---
+// --- СОСТОЯНИЕ 2: ОБЫЧНЫЙ ЧАТ (ТЕКСТ + КНОПКА ЛАБОРАТОРИИ) ---
   return (
     <div className="bg-surface-2 border-t border-border-color p-4">
-      {selectedFile && (
-        <div className="mb-3 flex items-center gap-2 bg-surface-1 p-2 rounded-lg border border-accent-ai/50 max-w-fit animate-fade-in-down">
-          <span className="text-sm text-text-primary truncate max-w-[200px]">{selectedFile.name}</span>
-          <button type="button" onClick={removeFile} className="text-text-secondary hover:text-red-500 transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-      )}
       <form onSubmit={handleSubmit} className="flex items-end gap-2 max-w-4xl mx-auto relative">
+
+        {/* НОВАЯ КНОПКА ЛАБОРАТОРИИ ВМЕСТО СКРЕПКИ */}
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="p-3 text-text-secondary hover:text-accent-ai transition-colors flex-shrink-0"
-          disabled={isLoading}
-          title="Прикрепить фото"
+          onClick={onOpenLab} // <--- ВАЖНО: Вызов функции из пропсов
+          className="p-3 bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 rounded-xl transition-all flex-shrink-0 flex items-center gap-2 shadow-sm"
+          title="Открыть лабораторию ИИ"
         >
-          <Paperclip size={24} />
+          <span className="text-xl">🔬</span>
+          <span className="hidden sm:inline font-bold">Лаборатория</span>
         </button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          className="hidden"
-          accept="image/*"
-        />
+
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Спросите агронома о вашем растении (или вставьте фото Ctrl+V)..."
+          placeholder="Спросите агронома о вашем растении..."
           className="flex-1 bg-surface-1 text-text-primary rounded-xl p-3 max-h-32 min-h-[50px] resize-none focus:outline-none focus:ring-1 focus:ring-accent-ai border border-border-color"
           disabled={isLoading}
           rows={1}
         />
         <button
           type="submit"
-          disabled={isLoading || (!message.trim() && !selectedFile)}
-          className="bg-accent-ai text-white p-3 rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          disabled={isLoading || !message.trim()}
+          className="bg-accent-ai text-white p-3 rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 shadow-sm"
         >
           <Send size={20} />
         </button>
