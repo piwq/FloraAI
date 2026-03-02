@@ -100,8 +100,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-6 bg-black/85 backdrop-blur-md" onClick={onClose}>
-      <div className="relative flex flex-col md:flex-row max-w-[1200px] w-full bg-white rounded-2xl overflow-hidden shadow-2xl h-[95vh] sm:h-[85vh]" onClick={e => e.stopPropagation()}>
-
+    <div className="relative flex flex-col md:flex-row w-[95vw] max-w-[1600px] bg-white rounded-2xl overflow-hidden shadow-2xl h-[95vh] sm:h-[90vh]" onClick={e => e.stopPropagation()}>
         {/* --- ЛЕВАЯ ЧАСТЬ --- */}
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden p-4">
           {activeAnn && !isAnnotating ? (
