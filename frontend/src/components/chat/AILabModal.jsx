@@ -167,14 +167,20 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                   </button>
 
                   {showAdvanced && (
-                    <div className="mt-4 p-4 bg-white rounded-xl border border-gray-200 shadow-inner space-y-4">
+                    <div className="mt-4 p-4 bg-white rounded-xl border border-gray-200 shadow-inner space-y-5 animate-fade-in-up">
                       <div>
-                        <div className="flex justify-between mb-1"><span className="text-[10px] font-bold text-gray-500 uppercase">Точность (Conf)</span><span className="text-xs font-bold">{settings.yolo_conf}</span></div>
-                        <input type="range" min="0.05" max="0.95" step="0.05" value={settings.yolo_conf} onChange={e => setSettings({...settings, yolo_conf: e.target.value})} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-800" />
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Точность (Conf)</span>
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded-md shadow-sm">{settings.yolo_conf}</span>
+                        </div>
+                        <input type="range" min="0.05" max="0.95" step="0.05" value={settings.yolo_conf} onChange={e => setSettings({...settings, yolo_conf: e.target.value})} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
                       </div>
                       <div>
-                        <div className="flex justify-between mb-1"><span className="text-[10px] font-bold text-gray-500 uppercase">Перекрытие (IoU)</span><span className="text-xs font-bold">{settings.yolo_iou}</span></div>
-                        <input type="range" min="0.1" max="0.9" step="0.05" value={settings.yolo_iou} onChange={e => setSettings({...settings, yolo_iou: e.target.value})} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-800" />
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Перекрытие (IoU)</span>
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded-md shadow-sm">{settings.yolo_iou}</span>
+                        </div>
+                        <input type="range" min="0.1" max="0.9" step="0.05" value={settings.yolo_iou} onChange={e => setSettings({...settings, yolo_iou: e.target.value})} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
                       </div>
                     </div>
                   )}
