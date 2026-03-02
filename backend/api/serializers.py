@@ -13,7 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag', 'yolo_conf', 'yolo_iou', 'yolo_imgsz')
+        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag', 'yolo_conf', 'yolo_iou', 'yolo_imgsz', 'color_leaf', 'color_root', 'color_stem')
         read_only_fields = ('id', 'username', 'email')
 
     def get_subscriptionStatus(self, obj):
