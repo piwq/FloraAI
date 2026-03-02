@@ -81,6 +81,8 @@ class MessageAnnotation(models.Model):
     color_root = models.CharField(max_length=7, default='#9333EA')
     color_stem = models.CharField(max_length=7, default='#2563EB')
 
+    segments = models.JSONField(default=list, blank=True)
+
     class Meta:
         # Сортируем так, чтобы новые разметки всегда были первыми
         ordering = ['-created_at']

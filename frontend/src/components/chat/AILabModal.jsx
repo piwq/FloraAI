@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getAnnotatedImage, getUserProfile, updateUserProfile } from '../../services/apiClient';
+import InteractivePlantCanvas from './InteractivePlantCanvas';
 
 const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [] }) => {
   if (!isOpen) return null;
@@ -74,7 +75,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         image: response.data.annotated_image_url,
         conf: response.data.conf,
         iou: response.data.iou,
-        imgsz: response.data.imgsz
+        imgsz: response.data.imgsz,
+        segments: response.data.segments
       };
 
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
@@ -104,20 +106,24 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       <div className="relative flex flex-col md:flex-row max-w-[1200px] w-full bg-white rounded-2xl overflow-hidden shadow-2xl h-[95vh] sm:h-[85vh]" onClick={e => e.stopPropagation()}>
 
         {/* --- ЛЕВАЯ ЧАСТЬ --- */}
-        <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative">
+        <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden p-4">
           {activeAnn && !isAnnotating ? (
             <>
-              <img src={activeAnn.image} alt="Annotated" className="w-full h-full object-contain" />
-              <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
+              {/* 🔥 ВОТ НАША МАГИЯ 🔥 */}
+              <InteractivePlantCanvas
+                imageUrl={activeAnn.image}
+                segments={activeAnn.segments || []}
+              />
+
+              <div className="absolute top-4 left-4 flex gap-2 pointer-events-none z-50">
                 <span className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur-md">Conf: {activeAnn.conf}</span>
                 <span className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur-md">IoU: {activeAnn.iou}</span>
                 <span className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur-md">{activeAnn.imgsz}px</span>
               </div>
             </>
           ) : (
-            <img src={initialImage} alt="Original" className={`w-full h-full object-contain ${isAnnotating ? 'opacity-20' : 'opacity-80'}`} />
+            <img src={initialImage} alt="Original" className={`max-w-full max-h-full object-contain rounded-lg ${isAnnotating ? 'opacity-20' : 'opacity-80'}`} />
           )}
-
           {isAnnotating && (
             <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center backdrop-blur-sm z-10">
               <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>

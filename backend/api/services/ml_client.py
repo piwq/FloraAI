@@ -48,11 +48,14 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
         response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=120)
 
         if response.status_code == 200:
-            img_b64 = response.json().get('annotated_image_base64')
+            resp_json = response.json()
+            img_b64 = resp_json.get('annotated_image_base64')
+            segments = resp_json.get('segments', [])  # <--- ДОСТАЕМ ИЗ JSON
             if img_b64:
                 image_data = base64.b64decode(img_b64)
-                return ContentFile(image_data, name=f"annotated_{filename}")
+                # Возвращаем кортеж (файл, сегменты)
+                return ContentFile(image_data, name=f"annotated_{filename}"), segments
     except Exception as e:
         print(f"ML Annotate Error: {e}")
 
-    return None
+    return None, []

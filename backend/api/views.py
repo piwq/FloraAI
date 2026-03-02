@@ -304,7 +304,8 @@ class ChatDetailAPIView(APIView):
                         "image": request.build_absolute_uri(a.image.url),
                         "conf": a.conf,
                         "iou": a.iou,
-                        "imgsz": a.imgsz
+                        "imgsz": a.imgsz,
+                        "segments": a.segments
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -443,19 +444,20 @@ class AnnotateMessageView(APIView):
 
         message.image.seek(0)
         # Отправляем цвета в функцию
-        annotated_file = get_annotated_image(message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem)
-
+        annotated_file, segments = get_annotated_image(message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root,
+                                                       c_stem)
         if annotated_file:
-            # Сохраняем новую версию с цветами
             new_ann = MessageAnnotation.objects.create(
                 message=message, image=annotated_file,
                 conf=user_conf, iou=user_iou, imgsz=user_imgsz,
-                color_leaf=c_leaf, color_root=c_root, color_stem=c_stem
+                color_leaf=c_leaf, color_root=c_root, color_stem=c_stem,
+                segments=segments
             )
             return Response({
                 "id": new_ann.id,
                 "annotated_image_url": request.build_absolute_uri(new_ann.image.url),
-                "conf": new_ann.conf, "iou": new_ann.iou, "imgsz": new_ann.imgsz
+                "conf": new_ann.conf, "iou": new_ann.iou, "imgsz": new_ann.imgsz,
+                "segments": new_ann.segments
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)
