@@ -17,6 +17,10 @@ const ProfilePage = () => {
   const [yoloIou, setYoloIou] = useState(0.7);
   const [yoloImgsz, setYoloImgsz] = useState(640);
 
+  const [colorLeaf, setColorLeaf] = useState('#16A34A');
+  const [colorRoot, setColorRoot] = useState('#9333EA');
+  const [colorStem, setColorStem] = useState('#2563EB');
+
   const todayDateStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -31,7 +35,10 @@ const ProfilePage = () => {
         setYoloConf(response.data.yolo_conf ?? 0.25);
         setYoloIou(response.data.yolo_iou ?? 0.7);
         setYoloImgsz(response.data.yolo_imgsz ?? 640);
-      } catch (error) {
+
+        if (response.data.color_leaf) setColorLeaf(response.data.color_leaf);
+        if (response.data.color_root) setColorRoot(response.data.color_root);
+        if (response.data.color_stem) setColorStem(response.data.color_stem);      } catch (error) {
         toast.error('Не удалось загрузить профиль.');
       } finally {
         setIsLoading(false);
@@ -66,7 +73,10 @@ const ProfilePage = () => {
       birthDate: formData.birthDate,
       yolo_conf: yoloConf,
       yolo_iou: yoloIou,
-      yolo_imgsz: yoloImgsz
+      yolo_imgsz: yoloImgsz,
+      color_leaf: colorLeaf,
+      color_root: colorRoot,
+      color_stem: colorStem
     };
 
     const promise = updateUserProfile(payload).then(res => {
@@ -188,6 +198,23 @@ const ProfilePage = () => {
                         <option value={640}>640px (Оптимально)</option>
                         <option value={1024}>1024px (Максимальная точность)</option>
                       </select>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <h4 className="text-md font-bold text-gray-800 mb-3 border-b pb-2">Цвета разметки</h4>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="flex flex-col items-center">
+                        <label className="text-xs text-text-secondary mb-1">Листья</label>
+                        <input type="color" value={colorLeaf} onChange={(e) => setColorLeaf(e.target.value)} className="w-12 h-12 rounded cursor-pointer" />
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <label className="text-xs text-text-secondary mb-1">Корни</label>
+                        <input type="color" value={colorRoot} onChange={(e) => setColorRoot(e.target.value)} className="w-12 h-12 rounded cursor-pointer" />
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <label className="text-xs text-text-secondary mb-1">Стебли</label>
+                        <input type="color" value={colorStem} onChange={(e) => setColorStem(e.target.value)} className="w-12 h-12 rounded cursor-pointer" />
+                      </div>
                     </div>
                   </div>
                 </div>

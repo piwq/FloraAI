@@ -95,6 +95,13 @@ services:
       - ./ml-service/.env
     networks:
       - flora_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
 
 volumes:
   postgres_data:

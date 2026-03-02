@@ -33,19 +33,18 @@ def analyze_plant_image(image_file, conf, iou, imgsz):
     return ml_data, annotated_image_content
 
 
-def get_annotated_image(image_file, conf, iou, imgsz):
+def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB"):
     try:
-        # 1. Достаем только чистое имя файла (без папок media/)
         filename = os.path.basename(image_file.name)
-
-        # 2. Читаем файл
         file_content = image_file.read()
 
-        # 3. Жестко задаем тип image/jpeg, так как у файла из БД нет .content_type
         files = {'file': (filename, file_content, 'image/jpeg')}
-        data_payload = {'conf': conf, 'iou': iou, 'imgsz': imgsz}
+        # Передаем цвета в ML-сервис
+        data_payload = {
+            'conf': conf, 'iou': iou, 'imgsz': imgsz,
+            'color_leaf': color_leaf, 'color_root': color_root, 'color_stem': color_stem
+        }
 
-        # 4. Отправляем в ML-сервис. Увеличил таймаут до 120 сек, т.к. без видеокарты YOLO думает дольше!
         response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=120)
 
         if response.status_code == 200:

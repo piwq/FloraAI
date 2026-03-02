@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from .models import PlantAnalysis, ChatMessage, ChatSession
+from .models import PlantAnalysis, ChatMessage, ChatSession, MessageAnnotation
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
 import os
 from channels.layers import get_channel_layer
@@ -288,20 +288,27 @@ class ChatDetailAPIView(APIView):
 
     def get(self, request, session_id):
         session = get_object_or_404(ChatSession, id=session_id, user=request.user)
-        messages = session.messages.all().order_by('created_at')
+        # prefetch_related ускорит загрузку истории разметок
+        messages = session.messages.prefetch_related('annotations').all().order_by('created_at')
+
         return Response([
             {
                 "id": m.id,
                 "role": m.role,
                 "content": m.content,
-                "image": request.build_absolute_uri(m.image.url) if m.image else None
+                "image": request.build_absolute_uri(m.image.url) if m.image else None,
+                # Добавляем список всех сгенерированных разметок для этого фото
+                "annotations": [
+                    {
+                        "id": a.id,
+                        "image": request.build_absolute_uri(a.image.url),
+                        "conf": a.conf,
+                        "iou": a.iou,
+                        "imgsz": a.imgsz
+                    } for a in m.annotations.all()
+                ]
             } for m in messages
         ])
-
-    def delete(self, request, session_id):
-        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
-        session.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class MockSubscribeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -407,30 +414,48 @@ class AnnotateMessageView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, message_id):
-        # 1. Находим сообщение пользователя, в котором есть картинка
         message = get_object_or_404(ChatMessage, id=message_id, session__user=request.user)
-
         if not message.image:
             return Response({"error": "В этом сообщении нет картинки"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Оптимизация: если мы уже делали разметку для этого фото, просто возвращаем её, не дергая ML
-        if message.annotated_image:
-            return Response({"annotated_image_url": request.build_absolute_uri(message.annotated_image.url)})
-
-        # 3. Достаем настройки пользователя
         user = request.user
         user_conf = getattr(user, 'yolo_conf', 0.25)
         user_iou = getattr(user, 'yolo_iou', 0.7)
         user_imgsz = getattr(user, 'yolo_imgsz', 1024)
 
-        # 4. Просим ML-сервис нарисовать контуры
+        # Достаем цвета юзера
+        c_leaf = getattr(user, 'color_leaf', '#16A34A')
+        c_root = getattr(user, 'color_root', '#9333EA')
+        c_stem = getattr(user, 'color_stem', '#2563EB')
+
+        # Ищем, есть ли уже разметка с ТАКИМИ ЖЕ настройками и ЦВЕТАМИ
+        existing = message.annotations.filter(
+            conf=user_conf, iou=user_iou, imgsz=user_imgsz,
+            color_leaf=c_leaf, color_root=c_root, color_stem=c_stem
+        ).first()
+
+        if existing:
+            return Response({
+                "id": existing.id,
+                "annotated_image_url": request.build_absolute_uri(existing.image.url),
+                "conf": existing.conf, "iou": existing.iou, "imgsz": existing.imgsz
+            })
+
         message.image.seek(0)
-        annotated_file = get_annotated_image(message.image, user_conf, user_iou, user_imgsz)
+        # Отправляем цвета в функцию
+        annotated_file = get_annotated_image(message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem)
 
-        # 5. Сохраняем результат в базу и отдаем ссылку фронтенду
         if annotated_file:
-            message.annotated_image = annotated_file
-            message.save()
-            return Response({"annotated_image_url": request.build_absolute_uri(message.annotated_image.url)})
+            # Сохраняем новую версию с цветами
+            new_ann = MessageAnnotation.objects.create(
+                message=message, image=annotated_file,
+                conf=user_conf, iou=user_iou, imgsz=user_imgsz,
+                color_leaf=c_leaf, color_root=c_root, color_stem=c_stem
+            )
+            return Response({
+                "id": new_ann.id,
+                "annotated_image_url": request.build_absolute_uri(new_ann.image.url),
+                "conf": new_ann.conf, "iou": new_ann.iou, "imgsz": new_ann.imgsz
+            })
 
-        return Response({"error": "Не удалось сгенерировать разметку (возможно, ИИ ничего не нашел)"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)

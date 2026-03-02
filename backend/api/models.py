@@ -10,7 +10,11 @@ class User(AbstractUser):
 
     yolo_conf = models.FloatField(default=0.25, verbose_name="Уверенность (Confidence)")
     yolo_iou = models.FloatField(default=0.7, verbose_name="Порог перекрытия (IoU)")
-    yolo_imgsz = models.IntegerField(default=640, verbose_name="Размер фото для ИИ")
+    yolo_imgsz = models.IntegerField(default=1024, verbose_name="Размер фото для ИИ")
+
+    color_leaf = models.CharField(max_length=7, default='#16A34A', verbose_name="Цвет листьев")  # Зеленый
+    color_root = models.CharField(max_length=7, default='#9333EA', verbose_name="Цвет корней")  # Фиолетовый
+    color_stem = models.CharField(max_length=7, default='#2563EB', verbose_name="Цвет стеблей")  # Синий
 
     # ДОБАВЛЯЕМ ПОЛЕ ДЛЯ ФРОНТЕНДА
     birth_date = models.DateField(null=True, blank=True)
@@ -61,5 +65,25 @@ class ChatMessage(models.Model):
     role = models.CharField(max_length=15, choices=ROLE_CHOICES)
     content = models.TextField()
     image = models.ImageField(upload_to='chat_images/', null=True, blank=True)
-    annotated_image = models.ImageField(upload_to='chat_annotated/', null=True, blank=True)
+    #annotated_image = models.ImageField(upload_to='chat_annotated/', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+class MessageAnnotation(models.Model):
+    """История генераций разметок для конкретного сообщения"""
+    message = models.ForeignKey(ChatMessage, on_delete=models.CASCADE, related_name='annotations')
+    image = models.ImageField(upload_to='chat_annotated_history/')
+    conf = models.FloatField(verbose_name="Уверенность (Confidence)")
+    iou = models.FloatField(verbose_name="Порог перекрытия (IoU)")
+    imgsz = models.IntegerField(verbose_name="Размер фото для ИИ")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    color_leaf = models.CharField(max_length=7, default='#16A34A')
+    color_root = models.CharField(max_length=7, default='#9333EA')
+    color_stem = models.CharField(max_length=7, default='#2563EB')
+
+    class Meta:
+        # Сортируем так, чтобы новые разметки всегда были первыми
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Annotation for Msg #{self.message_id} (conf={self.conf}, iou={self.iou})"

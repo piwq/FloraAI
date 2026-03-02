@@ -85,7 +85,7 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
 
         {/* Сами сообщения */}
         {messages.map((msg, idx) => (
-          <Message key={idx} id={msg.id} role={msg.role} content={msg.content} image={msg.image} />
+          <Message key={idx} id={msg.id} role={msg.role} content={msg.content} image={msg.image} annotations={msg.annotations || []}/>
         ))}
 
         {isTyping && <div className="text-gray-400 text-sm italic">Агроном печатает...</div>}

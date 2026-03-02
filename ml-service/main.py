@@ -27,6 +27,11 @@ CAMERA_MATRIX = np.array([
 DIST_COEFFS = np.array(
     [[-2.2404900497641926, 511.3571899037416, 0.06893033027219728, 0.11857984578290878, 2.2260582173175907]])
 
+def hex_to_bgr(hex_color: str):
+    """Конвертирует HEX цвет (#RRGGBB) в формат BGR для OpenCV"""
+    hex_color = hex_color.lstrip('#')
+    rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    return (rgb[2], rgb[1], rgb[0])  # OpenCV использует BGR вместо RGB
 
 @app.post("/predict")
 async def predict_plant(file: UploadFile = File(...),
@@ -82,24 +87,56 @@ async def predict_plant(file: UploadFile = File(...),
 
     return metrics
 
+
 @app.post("/annotate")
 async def annotate_plant(file: UploadFile = File(...),
                          conf: float = Form(float(os.getenv("YOLO_CONF", 0.25))),
                          iou: float = Form(float(os.getenv("YOLO_IOU", 0.7))),
-                         imgsz: int = Form(int(os.getenv("YOLO_IMGSZ", 1024)))): # Укажи тут 1024, если обучал на 1024
+                         imgsz: int = Form(int(os.getenv("YOLO_IMGSZ", 1024))),
+                         color_leaf: str = Form("#16A34A"),
+                         color_root: str = Form("#9333EA"),
+                         color_stem: str = Form("#2563EB")):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
 
     raw_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     img = cv2.undistort(raw_img, CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
 
+    # Предсказание
     results = model(img, conf=conf, iou=iou, imgsz=imgsz)[0]
 
     if results.masks is None:
         return {"annotated_image_base64": None}
 
-    annotated_frame = results.plot(boxes=False, masks=True)
+    # Маппинг классов на наши новые BGR цвета
+    color_map = {
+        0: hex_to_bgr(color_leaf),
+        1: hex_to_bgr(color_root),
+        2: hex_to_bgr(color_stem)
+    }
 
+    # Создаем копию картинки для полупрозрачной заливки
+    overlay = img.copy()
+    boxes = results.boxes.cls.cpu().numpy()
+
+    # 1. Заливаем полигоны цветом на слое overlay
+    for i, contour in enumerate(results.masks.xy):
+        cls_id = int(boxes[i])
+        color = color_map.get(cls_id, (0, 255, 0))
+        pts = np.array(contour, dtype=np.int32)
+        cv2.fillPoly(overlay, [pts], color)
+
+    # 2. Смешиваем оригинальное фото с цветным слоем (0.4 - это 40% прозрачности)
+    annotated_frame = cv2.addWeighted(overlay, 0.4, img, 0.6, 0)
+
+    # 3. Рисуем четкие, НЕпрозрачные контуры поверх уже смешанной картинки
+    for i, contour in enumerate(results.masks.xy):
+        cls_id = int(boxes[i])
+        color = color_map.get(cls_id, (0, 255, 0))
+        pts = np.array(contour, dtype=np.int32)
+        cv2.polylines(annotated_frame, [pts], isClosed=True, color=color, thickness=2)
+
+    # Кодируем и отправляем
     _, buffer = cv2.imencode('.jpg', annotated_frame)
     encoded_image = base64.b64encode(buffer).decode('utf-8')
 
