@@ -9,65 +9,91 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeTab, setActiveTab] = useState('history');
 
+  // ВСЕ настройки держим как строки, чтобы React не путался в инпутах
   const [settings, setSettings] = useState({
-    yolo_conf: 0.25, yolo_iou: 0.7, yolo_imgsz: 1024,
-    color_leaf: '#16A34A', color_root: '#9333EA', color_stem: '#2563EB'
+    yolo_conf: "0.25",
+    yolo_iou: "0.7",
+    yolo_imgsz: "1024",
+    color_leaf: '#16A34A',
+    color_root: '#9333EA',
+    color_stem: '#2563EB'
   });
+
   const [isManualSize, setIsManualSize] = useState(false);
 
+  // Загрузка профиля
   useEffect(() => {
     getUserProfile().then(res => {
       const data = res.data;
-      // ЖЕСТКАЯ ПРОВЕРКА И КОНВЕРТАЦИЯ РАЗМЕРА В ЧИСЛО
-      const currentSize = Number(data.yolo_imgsz) || 1024;
+
+      // Получаем размер с сервера и ЖЕСТКО делаем его строкой
+      const fetchedSizeStr = data.yolo_imgsz ? String(data.yolo_imgsz) : "1024";
 
       setSettings({
-        yolo_conf: Number(data.yolo_conf) || 0.25,
-        yolo_iou: Number(data.yolo_iou) || 0.7,
-        yolo_imgsz: currentSize,
+        yolo_conf: data.yolo_conf ? String(data.yolo_conf) : "0.25",
+        yolo_iou: data.yolo_iou ? String(data.yolo_iou) : "0.7",
+        yolo_imgsz: fetchedSizeStr,
         color_leaf: data.color_leaf || '#16A34A',
         color_root: data.color_root || '#9333EA',
         color_stem: data.color_stem || '#2563EB'
       });
 
-      if (![480, 640, 1024, 2048].includes(currentSize)) {
+      // Проверяем, есть ли этот размер в стандартных опциях (сравниваем строки!)
+      if (!["480", "640", "1024", "2048"].includes(fetchedSizeStr)) {
         setIsManualSize(true);
       } else {
         setIsManualSize(false);
       }
-    }).catch(err => console.error(err));
+    }).catch(err => console.error("Ошибка загрузки профиля:", err));
   }, []);
 
+  // Генерация
   const handleGenerate = async () => {
     setIsAnnotating(true);
     setActiveTab('history');
+
     try {
+      // Превращаем текст обратно в числа только перед самой отправкой
+      const finalSize = settings.yolo_imgsz.trim() === '' ? 1024 : parseInt(settings.yolo_imgsz, 10);
+
       const payload = {
         ...settings,
-        yolo_imgsz: settings.yolo_imgsz || 1024
+        yolo_conf: parseFloat(settings.yolo_conf),
+        yolo_iou: parseFloat(settings.yolo_iou),
+        yolo_imgsz: finalSize
       };
+
+      // Возвращаем в интерфейс "чистое" значение (если пользователь оставил поле пустым)
+      setSettings(prev => ({ ...prev, yolo_imgsz: String(finalSize) }));
+
       await updateUserProfile(payload);
+
       const response = await getAnnotatedImage(messageId);
       const newAnn = {
-        id: response.data.id, image: response.data.annotated_image_url,
-        conf: response.data.conf, iou: response.data.iou, imgsz: response.data.imgsz
+        id: response.data.id,
+        image: response.data.annotated_image_url,
+        conf: response.data.conf,
+        iou: response.data.iou,
+        imgsz: response.data.imgsz
       };
+
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
     } catch (err) {
-      console.error(err);
+      console.error("Ошибка генерации:", err);
     } finally {
       setIsAnnotating(false);
     }
   };
 
-  const handleSizeChange = (e) => {
+  // Обработчик селекта (без преобразования в числа!)
+  const handleSizeSelectChange = (e) => {
     const val = e.target.value;
     if (val === 'manual') {
       setIsManualSize(true);
     } else {
       setIsManualSize(false);
-      setSettings({ ...settings, yolo_imgsz: Number(val) });
+      setSettings({ ...settings, yolo_imgsz: val });
     }
   };
 
@@ -77,7 +103,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-6 bg-black/85 backdrop-blur-md" onClick={onClose}>
       <div className="relative flex flex-col md:flex-row max-w-[1200px] w-full bg-white rounded-2xl overflow-hidden shadow-2xl h-[95vh] sm:h-[85vh]" onClick={e => e.stopPropagation()}>
 
-        {/* ЛЕВАЯ ЧАСТЬ */}
+        {/* --- ЛЕВАЯ ЧАСТЬ --- */}
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative">
           {activeAnn && !isAnnotating ? (
             <>
@@ -100,8 +126,9 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
           )}
         </div>
 
-        {/* ПРАВАЯ ЧАСТЬ (Сайдбар) */}
+        {/* --- ПРАВАЯ ЧАСТЬ --- */}
         <div className="w-full md:w-[30%] bg-gray-50 flex flex-col min-w-[320px]">
+
           <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100">
             <h3 className="font-bold text-gray-800 flex items-center gap-2"><span className="text-xl">🔬</span> Лаборатория</h3>
             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">✕</button>
@@ -113,6 +140,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
           </div>
 
           <div className="flex-1 overflow-y-auto">
+            {/* ВКЛАДКА ИСТОРИИ */}
             {activeTab === 'history' && (
               <div className="p-4 space-y-3">
                 {localAnnotations.length === 0 ? (
@@ -135,6 +163,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
               </div>
             )}
 
+            {/* ВКЛАДКА НАСТРОЕК */}
             {activeTab === 'settings' && (
               <div className="p-5 space-y-6">
                 <div>
@@ -142,21 +171,25 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Точность (Conf)</label>
                     <span className="text-sm font-bold text-green-600">{settings.yolo_conf}</span>
                   </div>
-                  <input type="range" min="0.05" max="0.95" step="0.05" value={settings.yolo_conf} onChange={e => setSettings({...settings, yolo_conf: Number(e.target.value)})} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
+                  <input type="range" min="0.05" max="0.95" step="0.05" value={settings.yolo_conf} onChange={e => setSettings({...settings, yolo_conf: e.target.value})} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
                 </div>
+
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Перекрытие (IoU)</label>
                     <span className="text-sm font-bold text-green-600">{settings.yolo_iou}</span>
                   </div>
-                  <input type="range" min="0.1" max="0.9" step="0.05" value={settings.yolo_iou} onChange={e => setSettings({...settings, yolo_iou: Number(e.target.value)})} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
+                  <input type="range" min="0.1" max="0.9" step="0.05" value={settings.yolo_iou} onChange={e => setSettings({...settings, yolo_iou: e.target.value})} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600" />
                 </div>
+
                 <div className="p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 block">Размер (IMGSZ)</label>
+
+                  {/* СЕЛЕКТ - Жестко задан text-gray-900, чтобы текст точно был виден */}
                   <select
-                    value={isManualSize ? 'manual' : String(settings.yolo_imgsz)}
-                    onChange={handleSizeChange}
-                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:border-green-500"
+                    value={isManualSize ? 'manual' : settings.yolo_imgsz}
+                    onChange={handleSizeSelectChange}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none focus:ring-2 focus:border-green-500 cursor-pointer"
                   >
                     <option value="480">480px (Быстро)</option>
                     <option value="640">640px (Оптимально)</option>
@@ -165,33 +198,32 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                     <option value="manual">Свой размер...</option>
                   </select>
 
+                  {/* РУЧНОЙ ВВОД - Жестко задан text-gray-900 и убраны все конвертации при вводе */}
                   {isManualSize && (
                     <input
                       type="number"
                       min="320"
                       step="32"
-                      value={settings.yolo_imgsz === '' ? '' : settings.yolo_imgsz}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setSettings({...settings, yolo_imgsz: val === '' ? '' : Number(val)});
-                      }}
-                      placeholder="Например, 1536"
-                      className="w-full p-2.5 bg-gray-50 border border-green-500 rounded-lg text-sm outline-none ring-4 ring-green-500/10 mt-3"
+                      placeholder="Впишите число (напр. 1536)"
+                      value={settings.yolo_imgsz}
+                      onChange={e => setSettings({...settings, yolo_imgsz: e.target.value})}
+                      className="w-full p-2.5 bg-gray-50 text-gray-900 font-bold border border-green-500 rounded-lg text-sm outline-none ring-4 ring-green-500/10 mt-3 placeholder-gray-400"
                     />
                   )}
                 </div>
+
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 block">Цвета заливки</label>
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm transition-colors hover:border-green-300">
                       <input type="color" value={settings.color_leaf} onChange={e => setSettings({...settings, color_leaf: e.target.value})} className="w-8 h-8 rounded cursor-pointer mb-2 border-0" />
                       <span className="text-[10px] text-gray-500 uppercase font-bold">Листья</span>
                     </div>
-                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm transition-colors hover:border-purple-300">
                       <input type="color" value={settings.color_root} onChange={e => setSettings({...settings, color_root: e.target.value})} className="w-8 h-8 rounded cursor-pointer mb-2 border-0" />
                       <span className="text-[10px] text-gray-500 uppercase font-bold">Корни</span>
                     </div>
-                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex flex-col items-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm transition-colors hover:border-blue-300">
                       <input type="color" value={settings.color_stem} onChange={e => setSettings({...settings, color_stem: e.target.value})} className="w-8 h-8 rounded cursor-pointer mb-2 border-0" />
                       <span className="text-[10px] text-gray-500 uppercase font-bold">Стебли</span>
                     </div>
@@ -206,6 +238,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
               {isAnnotating ? 'Генерация...' : 'Сгенерировать разметку'}
             </button>
           </div>
+
         </div>
       </div>
     </div>
