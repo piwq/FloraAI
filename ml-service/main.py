@@ -6,7 +6,7 @@ import numpy as np
 import networkx as nx
 from skimage.morphology import skeletonize
 from skan import Skeleton, summarize
-
+import torch
 app = FastAPI()
 
 print("🚀 Инициализация Flora AI ML Service (с поддержкой DeepScan)...")
@@ -84,16 +84,27 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
 
     # === 2. ПРОГОН НЕЙРОСЕТИ И ГОЛОСОВАНИЕ ===
     for i, aug_img in enumerate(images_to_process):
-        res = model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
+        with torch.no_grad():
+            res = model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
+
         if res.masks is not None:
             boxes = res.boxes.cls.cpu().numpy()
-            for j, contour in enumerate(res.masks.xy):
-                cls_id = int(boxes[j])
-                pts = np.array(contour, dtype=np.int32)
+            # Переносим маски на CPU сразу в виде массива (тензор -> numpy)
+            # YOLO обычно отдает маски в меньшем разрешении (напр. 160x160)
+            masks_data = res.masks.data.cpu().numpy()
 
-                # Рисуем временную маску для этого контура
-                temp_mask = np.zeros((h, w), dtype=np.uint8)
-                cv2.fillPoly(temp_mask, [pts], 1)
+            for j in range(len(masks_data)):
+                cls_id = int(boxes[j])
+
+                # Берем маску конкретного объекта
+                mask_pixels = masks_data[j]
+
+                # Бинаризуем (YOLO отдает значения от 0 до 1)
+                binary_mask = (mask_pixels > 0.5).astype(np.uint8)
+
+                # РЕЗИНОВЫЙ ТРЮК: Масштабируем маску до размера оригинального фото (h, w)
+                # Это НАМНОГО быстрее, чем рисовать через fillPoly
+                temp_mask = cv2.resize(binary_mask, (w, h), interpolation=cv2.INTER_NEAREST)
 
                 # Добавляем голос в общую копилку
                 if cls_id == 0:
@@ -102,6 +113,11 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
                     acc_root += temp_mask
                 elif cls_id == 2:
                     acc_stem += temp_mask
+
+        # 🔥 ВАЖНО: Удаляем результаты из памяти и чистим кеш CUDA после каждого прогона
+        del res
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # === 3. КОНСЕНСУС (ОПРЕДЕЛЯЕМ ФИНАЛЬНУЮ МАСКУ) ===
     # Если обычный режим: достаточно 1 голоса. Если DeepScan: нужно минимум 2 голоса из 5.
