@@ -9,11 +9,10 @@ from skan import Skeleton, summarize
 
 app = FastAPI()
 
-# Загружаем модель сегментации
-print("🚀 Инициализация Flora AI ML Service...")
+print("🚀 Инициализация Flora AI ML Service (с поддержкой DeepScan)...")
 model = YOLO("best.pt")
 
-# --- 1. НАСТРОЙКИ ИЗ .env ---
+# --- 1. НАСТРОЙКИ ---
 YOLO_CONF = float(os.getenv("YOLO_CONF", 0.1))
 YOLO_IOU = float(os.getenv("YOLO_IOU", 0.6))
 YOLO_IMGSZ = int(os.getenv("YOLO_IMGSZ", 2048))
@@ -23,7 +22,6 @@ CM2_PER_PIXEL = float(os.getenv("CALIB_CM2_PER_PX", 0.000114))
 MIN_ROOT_LENGTH_MM = 2.0
 MICRO_SEGMENT_PX = 5
 
-# --- 2. КАЛИБРОВКА КАМЕРЫ ---
 CAMERA_MATRIX = np.array([
     [16801.23224837294, 0.0, 984.2194327484033],
     [0.0, 16782.95796193301, 837.8788984440081],
@@ -34,57 +32,88 @@ DIST_COEFFS = np.array(
 )
 
 
-def hex_to_bgr(hex_color: str):
-    hex_color = hex_color.lstrip('#')
-    rgb = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
-    return (rgb[2], rgb[1], rgb[0])
+def get_polygons_from_mask(mask, offset_id=0):
+    """Функция извлекает красивые полигоны для React из сырой пиксельной маски"""
+    polygons = []
+    count = 0
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if cv2.contourArea(cnt) > 20:  # Отсекаем микро-шумы в 1-2 пикселя
+            poly_path = [[int(pt[0][0]), int(pt[0][1])] for pt in cnt]
+            count += 1
+            polygons.append({"id": offset_id + count, "path": poly_path})
+    return polygons, count
 
 
-def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
+def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=False):
     h, w = img.shape[:2]
-    results = model(img, conf=conf, iou=iou, imgsz=imgsz)[0]
 
     metrics = {
-        "status": "Анализ успешно завершен", "plant_type": "Анализ завершен",
-        "leaf_count": 0, "leaf_area_cm2": 0.0, "stem_count": 0, "stem_length_mm": 0.0, "root_anchors": 0,
-        "primary_root_len_mm": 0.0, "primary_root_vol_mm3": 0.0, "lateral_root_len_mm": 0.0,
-        "lateral_root_vol_mm3": 0.0,
+        "status": "Анализ успешно завершен", "leaf_count": 0, "leaf_area_cm2": 0.0,
+        "stem_count": 0, "stem_length_mm": 0.0, "root_anchors": 0, "primary_root_len_mm": 0.0,
+        "primary_root_vol_mm3": 0.0, "lateral_root_len_mm": 0.0, "lateral_root_vol_mm3": 0.0,
         "total_root_len_mm": 0.0, "total_root_vol_mm3": 0.0, "root_length_mm": 0.0,
-        "segments": [],
-        "leaves": [],  # <--- МАССИВ ЛИСТЬЕВ
-        "stems": [],  # <--- МАССИВ СТЕБЛЕЙ
-        "annotated_image_base64": None
+        "segments": [], "leaves": [], "stems": [], "annotated_image_base64": None,
+        "is_deep_scan": deep_scan
     }
 
-    roots_attached_to_stems = 0
-    primary_edges = set()
-    valid_branch_indices = []
+    # === 1. ГЕНЕРАЦИЯ МУТАЦИЙ (TTA) ===
+    images_to_process = [img]
 
-    root_mask = np.zeros((h, w), dtype=np.uint8)
-    stem_mask = np.zeros((h, w), dtype=np.uint8)
-    leaf_mask = np.zeros((h, w), dtype=np.uint8)
+    if deep_scan:
+        print("🔍 DEEP SCAN АКТИВИРОВАН: Запуск 5-ступенчатого TTA ансамблирования...")
+        # Мутация 1: Яркость +
+        img_bright = cv2.convertScaleAbs(img, alpha=1.1, beta=15)
+        # Мутация 2: Контраст +
+        img_contrast = cv2.convertScaleAbs(img, alpha=1.3, beta=0)
+        # Мутация 3: CLAHE (Вытягивание деталей из теней)
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_channel, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        cl = clahe.apply(l_channel)
+        img_clahe = cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
+        # Мутация 4: Затемнение (убирает блики)
+        img_dark = cv2.convertScaleAbs(img, alpha=0.9, beta=-15)
 
-    if results.masks is None:
-        return metrics, None
+        images_to_process.extend([img_bright, img_contrast, img_clahe, img_dark])
 
-    boxes = results.boxes.cls.cpu().numpy()
+    # Накопители голосов (каждый пиксель голосует, к какому классу он относится)
+    acc_leaf = np.zeros((h, w), dtype=np.uint8)
+    acc_root = np.zeros((h, w), dtype=np.uint8)
+    acc_stem = np.zeros((h, w), dtype=np.uint8)
 
-    # 1. СБОР ПОЛИГОНОВ (БЕЗ РИСОВАНИЯ!)
-    for i, contour in enumerate(results.masks.xy):
-        cls_id = int(boxes[i])
-        pts = np.array(contour, dtype=np.int32)
-        poly_path = [[int(pt[0]), int(pt[1])] for pt in pts]  # Конвертируем для JSON
+    # === 2. ПРОГОН НЕЙРОСЕТИ И ГОЛОСОВАНИЕ ===
+    for i, aug_img in enumerate(images_to_process):
+        res = model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
+        if res.masks is not None:
+            boxes = res.boxes.cls.cpu().numpy()
+            for j, contour in enumerate(res.masks.xy):
+                cls_id = int(boxes[j])
+                pts = np.array(contour, dtype=np.int32)
 
-        if cls_id == 0:  # Листья
-            cv2.fillPoly(leaf_mask, [pts], 1)
-            metrics["leaf_count"] += 1
-            metrics["leaves"].append({"id": metrics["leaf_count"], "path": poly_path})
-        elif cls_id == 1:  # Корни
-            cv2.fillPoly(root_mask, [pts], 1)
-        elif cls_id == 2:  # Стебли
-            cv2.fillPoly(stem_mask, [pts], 1)
-            metrics["stem_count"] += 1
-            metrics["stems"].append({"id": metrics["stem_count"], "path": poly_path})
+                # Рисуем временную маску для этого контура
+                temp_mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.fillPoly(temp_mask, [pts], 1)
+
+                # Добавляем голос в общую копилку
+                if cls_id == 0:
+                    acc_leaf += temp_mask
+                elif cls_id == 1:
+                    acc_root += temp_mask
+                elif cls_id == 2:
+                    acc_stem += temp_mask
+
+    # === 3. КОНСЕНСУС (ОПРЕДЕЛЯЕМ ФИНАЛЬНУЮ МАСКУ) ===
+    # Если обычный режим: достаточно 1 голоса. Если DeepScan: нужно минимум 2 голоса из 5.
+    threshold = 2 if deep_scan else 1
+
+    leaf_mask = (acc_leaf >= threshold).astype(np.uint8)
+    root_mask = (acc_root >= threshold).astype(np.uint8)
+    stem_mask = (acc_stem >= threshold).astype(np.uint8)
+
+    # Извлекаем финальные полигоны для React
+    metrics["leaves"], metrics["leaf_count"] = get_polygons_from_mask(leaf_mask, 0)
+    metrics["stems"], metrics["stem_count"] = get_polygons_from_mask(stem_mask, 0)
 
     metrics["leaf_area_cm2"] = float(round(np.sum(leaf_mask) * CM2_PER_PIXEL, 2))
 
@@ -92,7 +121,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
         stem_skel = skeletonize(stem_mask > 0)
         metrics["stem_length_mm"] = float(round(np.sum(stem_skel) * MM_PER_PIXEL * 1.1, 2))
 
-    # --- 2. ТОПОЛОГИЯ КОРНЕЙ ---
+    # === 4. МАТЕМАТИКА ГРАФОВ (По Идеальной Супер-Маске) ===
     if np.any(root_mask):
         try:
             kernel = np.ones((3, 3), np.uint8)
@@ -109,6 +138,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
             G = nx.Graph()
             node_to_coords = {}
             anchor_nodes = set()
+            valid_branch_indices = []
 
             for index, row in branch_data.iterrows():
                 b_dist = row.get('branch-distance') if 'branch-distance' in row else row.get('branch_distance')
@@ -125,6 +155,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
                 c_src_x = row.get('image-coord-src-1') if 'image-coord-src-1' in row else row.get('image_coord_src_1')
                 c_dst_y = row.get('image-coord-dst-0') if 'image-coord-dst-0' in row else row.get('image_coord_dst_0')
                 c_dst_x = row.get('image-coord-dst-1') if 'image-coord-dst-1' in row else row.get('image_coord_dst_1')
+
                 node_to_coords[u] = (int(c_src_y), int(c_src_x))
                 node_to_coords[v] = (int(c_dst_y), int(c_dst_x))
 
@@ -132,6 +163,9 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
                 if 0 <= coord_y < h and 0 <= coord_x < w:
                     if stem_dilated[coord_y, coord_x] > 0:
                         anchor_nodes.add(node_id)
+
+            roots_attached_to_stems = 0
+            primary_edges = set()
 
             for component in nx.connected_components(G):
                 subgraph = G.subgraph(component)
@@ -198,50 +232,32 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
     metrics["root_length_mm"] = metrics["total_root_len_mm"]
 
     if draw_annotation:
-        # ВОЗВРАЩАЕМ ЧИСТУЮ КАРТИНКУ
         return metrics, img.copy()
 
     return metrics, None
 
 
-# ... (predict_plant остается без изменений) ...
-
-@app.post("/annotate")
-async def annotate_plant(file: UploadFile = File(...),
-                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048)):
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
-    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True)
-
-    if annotated_frame is None: return {"annotated_image_base64": None}
-
-    _, buffer = cv2.imencode('.jpg', annotated_frame)
-
-    return {
-        "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
-        "segments": metrics.get("segments", []),
-        "leaves": metrics.get("leaves", []),  # Отдаем листья
-        "stems": metrics.get("stems", [])  # Отдаем стебли
-    }
-
 @app.post("/predict")
 async def predict_plant(file: UploadFile = File(...),
-                        conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048)):
+                        conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
+                        deep_scan: bool = Form(False)):  # Добавлен флаг
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
-    metrics, _ = analyze_biomass(img, conf, iou, imgsz, False)
+    metrics, _ = analyze_biomass(img, conf, iou, imgsz, False, deep_scan)
     return metrics
 
 
 @app.post("/annotate")
 async def annotate_plant(file: UploadFile = File(...),
-                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048)):
+                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
+                         deep_scan: bool = Form(False)):  # Добавлен флаг
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
-    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True)
+
+    # Передаем deep_scan в функцию
+    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, deep_scan)
 
     if annotated_frame is None: return {"annotated_image_base64": None}
 
@@ -250,6 +266,7 @@ async def annotate_plant(file: UploadFile = File(...),
     return {
         "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
         "segments": metrics.get("segments", []),
-        "leaves": metrics.get("leaves", []),  # Отдаем листья
-        "stems": metrics.get("stems", [])  # Отдаем стебли
+        "leaves": metrics.get("leaves", []),
+        "stems": metrics.get("stems", []),
+        "is_deep_scan": deep_scan
     }

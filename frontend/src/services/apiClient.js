@@ -43,7 +43,11 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   });
 };
 
-export const getAnnotatedImage = (messageId) => apiClient.post(`/chat/message/${messageId}/annotate/`);
+export const getAnnotatedImage = (messageId, isDeepScan = false) => {
+    return apiClient.post(`chat/message/${messageId}/annotate/`, {
+        deep_scan: isDeepScan
+    });
+};
 
 // Интеграции и оплата
 export const linkTelegram = (data) => apiClient.post('/auth/telegram/link/', data);

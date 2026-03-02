@@ -33,7 +33,7 @@ def analyze_plant_image(image_file, conf, iou, imgsz):
     return ml_data, annotated_image_content
 
 
-def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB"):
+def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False):
     try:
         filename = os.path.basename(image_file.name)
         file_content = image_file.read()
@@ -42,7 +42,8 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
         # Передаем цвета в ML-сервис
         data_payload = {
             'conf': conf, 'iou': iou, 'imgsz': imgsz,
-            'color_leaf': color_leaf, 'color_root': color_root, 'color_stem': color_stem
+            'color_leaf': color_leaf, 'color_root': color_root, 'color_stem': color_stem,
+            'deep_scan': 'true' if deep_scan else 'false'
         }
 
         response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=120)

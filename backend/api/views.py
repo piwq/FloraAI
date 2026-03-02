@@ -422,33 +422,32 @@ class AnnotateMessageView(APIView):
             return Response({"error": "В этом сообщении нет картинки"}, status=status.HTTP_400_BAD_REQUEST)
 
         user = request.user
-        user_conf = getattr(user, 'yolo_conf', 0.25)
-        user_iou = getattr(user, 'yolo_iou', 0.7)
-        user_imgsz = getattr(user, 'yolo_imgsz', 1024)
 
-        # Достаем цвета юзера
-        c_leaf = getattr(user, 'color_leaf', '#16A34A')
-        c_root = getattr(user, 'color_root', '#9333EA')
-        c_stem = getattr(user, 'color_stem', '#2563EB')
+        # Получаем флаг DeepScan из запроса React
+        deep_scan = request.data.get('deep_scan', False)
+        if isinstance(deep_scan, str):
+            deep_scan = deep_scan.lower() == 'true'
 
-        # Ищем, есть ли уже разметка с ТАКИМИ ЖЕ настройками и ЦВЕТАМИ
-        existing = message.annotations.filter(
-            conf=user_conf, iou=user_iou, imgsz=user_imgsz,
-            color_leaf=c_leaf, color_root=c_root, color_stem=c_stem
-        ).first()
+        user_conf = getattr(user, 'yolo_conf', None)
+        user_conf = float(user_conf) if user_conf is not None else 0.1
 
-        if existing:
-            return Response({
-                "id": existing.id,
-                "annotated_image_url": request.build_absolute_uri(existing.image.url),
-                "conf": existing.conf, "iou": existing.iou, "imgsz": existing.imgsz
-            })
+        user_iou = getattr(user, 'yolo_iou', None)
+        user_iou = float(user_iou) if user_iou is not None else 0.6
+
+        user_imgsz = getattr(user, 'yolo_imgsz', None)
+        user_imgsz = int(user_imgsz) if user_imgsz is not None else 2048
+
+        c_leaf = getattr(user, 'color_leaf', None) or '#16A34A'
+        c_root = getattr(user, 'color_root', None) or '#9333EA'
+        c_stem = getattr(user, 'color_stem', None) or '#2563EB'
 
         message.image.seek(0)
-        # Отправляем цвета в функцию
+
+        # ПЕРЕДАЕМ ФЛАГ deep_scan В ML-КЛИЕНТ
         annotated_file, segments, leaves, stems = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem
+            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan
         )
+
         if annotated_file:
             new_ann = MessageAnnotation.objects.create(
                 message=message, image=annotated_file,
@@ -464,7 +463,8 @@ class AnnotateMessageView(APIView):
                 "conf": new_ann.conf, "iou": new_ann.iou, "imgsz": new_ann.imgsz,
                 "segments": new_ann.segments,
                 "leaves": new_ann.leaves,
-                "stems": new_ann.stems
+                "stems": new_ann.stems,
+                "is_deep_scan": deep_scan  # Отдаем обратно для UI
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)
