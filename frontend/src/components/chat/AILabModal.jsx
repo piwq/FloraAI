@@ -72,7 +72,9 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         conf: response.data.conf,
         iou: response.data.iou,
         imgsz: response.data.imgsz,
-        segments: response.data.segments // пробрасываем сегменты корней
+        segments: response.data.segments,
+        leaves: response.data.leaves,
+        stems: response.data.stems
       };
 
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
@@ -107,7 +109,10 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
               <InteractivePlantCanvas
                 imageUrl={activeAnn.image}
                 segments={activeAnn.segments || []}
+                leaves={activeAnn.leaves || []}
+                stems={activeAnn.stems || []}
                 settings={settings}
+                metrics={activeAnn}
               />
               <div className="absolute top-4 left-4 flex gap-2 pointer-events-none z-50">
                 <span className="bg-black/50 border border-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur-md">Conf: {activeAnn.conf}</span>

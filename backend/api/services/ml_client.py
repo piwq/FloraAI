@@ -50,12 +50,14 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
         if response.status_code == 200:
             resp_json = response.json()
             img_b64 = resp_json.get('annotated_image_base64')
-            segments = resp_json.get('segments', [])  # <--- ДОСТАЕМ ИЗ JSON
+            segments = resp_json.get('segments', [])
+            leaves = resp_json.get('leaves', [])
+            stems = resp_json.get('stems', [])
             if img_b64:
                 image_data = base64.b64decode(img_b64)
                 # Возвращаем кортеж (файл, сегменты)
-                return ContentFile(image_data, name=f"annotated_{filename}"), segments
+                return ContentFile(image_data, name=f"annotated_{filename}"), segments, leaves, stems
     except Exception as e:
         print(f"ML Annotate Error: {e}")
 
-    return None, []
+    return None, [], [], []  # <--- ДОБАВИТЬ ПУСТЫЕ МАССИВЫ ПРИ ОШИБКЕ

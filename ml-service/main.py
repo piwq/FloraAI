@@ -44,29 +44,15 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
     h, w = img.shape[:2]
     results = model(img, conf=conf, iou=iou, imgsz=imgsz)[0]
 
-    # --- РАСШИРЕННЫЕ МЕТРИКИ ДЛЯ ИНТЕРАКТИВНОГО ДАШБОРДА (РУССКИЙ ЯЗЫК) ---
     metrics = {
-        "status": "Анализ успешно завершен",
-        "plant_type": "Анализ завершен",  # Оставлено для обратной совместимости
-        "leaf_count": 0,
-        "leaf_area_cm2": 0.0,
-        "stem_count": 0,
-        "stem_length_mm": 0.0,
-        "root_anchors": 0,
-
-        # Раздельные метрики для легенды
-        "primary_root_len_mm": 0.0,
-        "primary_root_vol_mm3": 0.0,
-        "lateral_root_len_mm": 0.0,
+        "status": "Анализ успешно завершен", "plant_type": "Анализ завершен",
+        "leaf_count": 0, "leaf_area_cm2": 0.0, "stem_count": 0, "stem_length_mm": 0.0, "root_anchors": 0,
+        "primary_root_len_mm": 0.0, "primary_root_vol_mm3": 0.0, "lateral_root_len_mm": 0.0,
         "lateral_root_vol_mm3": 0.0,
-
-        # Общие суммы
-        "total_root_len_mm": 0.0,
-        "total_root_vol_mm3": 0.0,
-        "root_length_mm": 0.0,  # Оставлено для БД Django
-
-        # МАССИВ ДЛЯ ИНТЕРАКТИВНЫХ ТУЛТИПОВ (Hover-эффекты на фронтенде)
+        "total_root_len_mm": 0.0, "total_root_vol_mm3": 0.0, "root_length_mm": 0.0,
         "segments": [],
+        "leaves": [],  # <--- МАССИВ ЛИСТЬЕВ
+        "stems": [],  # <--- МАССИВ СТЕБЛЕЙ
         "annotated_image_base64": None
     }
 
@@ -78,37 +64,27 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
     stem_mask = np.zeros((h, w), dtype=np.uint8)
     leaf_mask = np.zeros((h, w), dtype=np.uint8)
 
-    if draw_annotation:
-        output_img = cv2.addWeighted(img, 0.25, np.zeros_like(img), 0.75, 0)
-        overlay_masks = np.zeros_like(img)
-        c_leaf = colors.get("leaf", (74, 163, 22))
-        c_stem = colors.get("stem", (235, 99, 37))
-        c_primary = colors.get("root", (0, 0, 255))
-        c_lateral = (255, 255, 0)  # Латеральные всегда циановые для контраста
-
     if results.masks is None:
         return metrics, None
 
     boxes = results.boxes.cls.cpu().numpy()
 
-    # 1. РАСПРЕДЕЛЕНИЕ МАСОК
+    # 1. СБОР ПОЛИГОНОВ (БЕЗ РИСОВАНИЯ!)
     for i, contour in enumerate(results.masks.xy):
         cls_id = int(boxes[i])
         pts = np.array(contour, dtype=np.int32)
+        poly_path = [[int(pt[0]), int(pt[1])] for pt in pts]  # Конвертируем для JSON
+
         if cls_id == 0:  # Листья
             cv2.fillPoly(leaf_mask, [pts], 1)
             metrics["leaf_count"] += 1
-            if draw_annotation:
-                cv2.fillPoly(overlay_masks, [pts], c_leaf)
-                cv2.polylines(overlay_masks, [pts], True, (255, 255, 255), 1)
+            metrics["leaves"].append({"id": metrics["leaf_count"], "path": poly_path})
         elif cls_id == 1:  # Корни
             cv2.fillPoly(root_mask, [pts], 1)
         elif cls_id == 2:  # Стебли
             cv2.fillPoly(stem_mask, [pts], 1)
             metrics["stem_count"] += 1
-            if draw_annotation:
-                cv2.fillPoly(overlay_masks, [pts], c_stem)
-                cv2.polylines(overlay_masks, [pts], True, (255, 255, 255), 1)
+            metrics["stems"].append({"id": metrics["stem_count"], "path": poly_path})
 
     metrics["leaf_area_cm2"] = float(round(np.sum(leaf_mask) * CM2_PER_PIXEL, 2))
 
@@ -116,10 +92,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
         stem_skel = skeletonize(stem_mask > 0)
         metrics["stem_length_mm"] = float(round(np.sum(stem_skel) * MM_PER_PIXEL * 1.1, 2))
 
-    if draw_annotation:
-        output_img = cv2.addWeighted(overlay_masks, 0.5, output_img, 1.0, 0)
-
-    # 2. ТОПОЛОГИЯ КОРНЕЙ И 3D АНАЛИЗ
+    # --- 2. ТОПОЛОГИЯ КОРНЕЙ ---
     if np.any(root_mask):
         try:
             kernel = np.ones((3, 3), np.uint8)
@@ -140,21 +113,18 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
             for index, row in branch_data.iterrows():
                 b_dist = row.get('branch-distance') if 'branch-distance' in row else row.get('branch_distance')
                 b_type = row.get('branch-type') if 'branch-type' in row else row.get('branch_type')
-
                 dist_mm = b_dist * MM_PER_PIXEL
                 if b_type == 1 and dist_mm < MIN_ROOT_LENGTH_MM: continue
 
                 valid_branch_indices.append(index)
                 u = int(row.get('node-id-src') if 'node-id-src' in row else row.get('node_id_src'))
                 v = int(row.get('node-id-dst') if 'node-id-dst' in row else row.get('node_id_dst'))
-
                 G.add_edge(u, v, weight=dist_mm, index=index)
 
                 c_src_y = row.get('image-coord-src-0') if 'image-coord-src-0' in row else row.get('image_coord_src_0')
                 c_src_x = row.get('image-coord-src-1') if 'image-coord-src-1' in row else row.get('image_coord_src_1')
                 c_dst_y = row.get('image-coord-dst-0') if 'image-coord-dst-0' in row else row.get('image_coord_dst_0')
                 c_dst_x = row.get('image-coord-dst-1') if 'image-coord-dst-1' in row else row.get('image_coord_dst_1')
-
                 node_to_coords[u] = (int(c_src_y), int(c_src_x))
                 node_to_coords[v] = (int(c_dst_y), int(c_dst_x))
 
@@ -184,7 +154,6 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
 
             metrics["root_anchors"] = roots_attached_to_stems
 
-            # ИНТЕРАКТИВНЫЙ ДАШБОРД: СБОР ДАННЫХ ДЛЯ КАЖДОГО СЕГМЕНТА
             for index in valid_branch_indices:
                 row = branch_data.loc[index]
                 b_dist = row.get('branch-distance') if 'branch-distance' in row else row.get('branch_distance')
@@ -197,8 +166,6 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
                 vol_mm3 = np.pi * (true_rad_mm ** 2) * dist_mm
 
                 is_primary = index in primary_edges
-
-                # Добавляем в глобальные счетчики
                 if is_primary:
                     metrics["primary_root_len_mm"] += dist_mm
                     metrics["primary_root_vol_mm3"] += vol_mm3
@@ -209,40 +176,54 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, colors=None):
                 metrics["total_root_len_mm"] += dist_mm
                 metrics["total_root_vol_mm3"] += vol_mm3
 
-                # ФОРМИРУЕМ JSON-ОБЪЕКТ ДЛЯ ТУЛТИПА
                 segment_data = {
                     "id": int(index),
                     "type": "Стержневой (Первичный)" if is_primary else "Боковой (Латеральный)",
                     "length_mm": round(dist_mm, 2),
-                    "thickness_mm": round(true_rad_mm * 2, 3),  # Диаметр
+                    "thickness_mm": round(true_rad_mm * 2, 3),
                     "volume_mm3": round(vol_mm3, 2),
-                    "path": [[int(x), int(y)] for y, x in coords]  # Для SVG наложения на фронте
+                    "path": [[int(x), int(y)] for y, x in coords]
                 }
                 metrics["segments"].append(segment_data)
-
-                # Отрисовка на картинке (без текста)
-                if draw_annotation:
-                    pts = np.array([[x, y] for y, x in coords], np.int32).reshape((-1, 1, 2))
-                    color = c_primary if is_primary else c_lateral
-                    cv2.polylines(output_img, [pts], False, color, 4 if is_primary else 2)
 
         except Exception as e:
             print(f"Ошибка анализа графов: {e}")
 
-    # Округление финальных метрик
     metrics["primary_root_len_mm"] = float(round(metrics["primary_root_len_mm"], 2))
     metrics["primary_root_vol_mm3"] = float(round(metrics["primary_root_vol_mm3"], 2))
     metrics["lateral_root_len_mm"] = float(round(metrics["lateral_root_len_mm"], 2))
     metrics["lateral_root_vol_mm3"] = float(round(metrics["lateral_root_vol_mm3"], 2))
     metrics["total_root_len_mm"] = float(round(metrics["total_root_len_mm"], 2))
     metrics["total_root_vol_mm3"] = float(round(metrics["total_root_vol_mm3"], 2))
-    metrics["root_length_mm"] = metrics["total_root_len_mm"]  # Для БД Django
+    metrics["root_length_mm"] = metrics["total_root_len_mm"]
 
     if draw_annotation:
-        return metrics, output_img
+        # ВОЗВРАЩАЕМ ЧИСТУЮ КАРТИНКУ
+        return metrics, img.copy()
 
     return metrics, None
 
+
+# ... (predict_plant остается без изменений) ...
+
+@app.post("/annotate")
+async def annotate_plant(file: UploadFile = File(...),
+                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048)):
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
+    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True)
+
+    if annotated_frame is None: return {"annotated_image_base64": None}
+
+    _, buffer = cv2.imencode('.jpg', annotated_frame)
+
+    return {
+        "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
+        "segments": metrics.get("segments", []),
+        "leaves": metrics.get("leaves", []),  # Отдаем листья
+        "stems": metrics.get("stems", [])  # Отдаем стебли
+    }
 
 @app.post("/predict")
 async def predict_plant(file: UploadFile = File(...),
@@ -256,17 +237,19 @@ async def predict_plant(file: UploadFile = File(...),
 
 @app.post("/annotate")
 async def annotate_plant(file: UploadFile = File(...),
-                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
-                         color_leaf: str = Form("#16A34A"), color_root: str = Form("#9333EA"),
-                         color_stem: str = Form("#2563EB")):
+                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048)):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
-    colors = {"leaf": hex_to_bgr(color_leaf), "root": hex_to_bgr(color_root), "stem": hex_to_bgr(color_stem)}
-    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, colors)
+    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True)
+
     if annotated_frame is None: return {"annotated_image_base64": None}
+
     _, buffer = cv2.imencode('.jpg', annotated_frame)
+
     return {
         "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
-        "segments": metrics.get("segments", [])
+        "segments": metrics.get("segments", []),
+        "leaves": metrics.get("leaves", []),  # Отдаем листья
+        "stems": metrics.get("stems", [])  # Отдаем стебли
     }
