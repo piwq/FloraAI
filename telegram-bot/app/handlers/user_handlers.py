@@ -166,7 +166,7 @@ async def process_activate_chat(callback: CallbackQuery, state: FSMContext):
     session_id = callback.data.split("_")[2]
     await state.update_data(session_id=session_id)
     await state.set_state(ChatStates.active_chat)
-    await set_active_session(message.from_user.id, session_id)
+    await set_active_session(callback.from_user.id, session_id)
 
     await callback.message.edit_text(
         "✅ <b>Чат переключен!</b>\n\nВы вернулись к старому анализу. Теперь ваши сообщения отправляются в контекст этого растения.",
@@ -246,7 +246,7 @@ async def handle_photo(message: Message, state: FSMContext):
         if is_linked and session_id:
             await state.update_data(session_id=session_id)
             await state.set_state(ChatStates.active_chat)
-            await set_active_session(callback.from_user.id, session_id)
+            await set_active_session(message.from_user.id, session_id)
             await message.answer("✍️ Вы можете задать уточняющий вопрос агроному.", parse_mode="HTML")
         else:
             await state.clear()
@@ -428,7 +428,7 @@ async def back_to_settings(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "close_settings")
 async def close_settings(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await set_active_session(message.from_user.id, None)
+    await set_active_session(callback.from_user.id, None)
     await callback.message.delete()
     await callback.answer("Настройки закрыты")
 

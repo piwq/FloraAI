@@ -31,7 +31,7 @@ urlpatterns = [
     path('api/payment/mock-subscribe', MockSubscribeView.as_view(), name='mock-subscribe'),
     path('api/bot/profile/', BotProfileView.as_view(), name='bot-profile'),
     path('api/bot/history/', BotHistoryView.as_view(), name='bot-history'),
-    path('chat/set_active/', SetActiveSessionView.as_view(), name='set_active_session'),
+    path('api/chat/set_active/', SetActiveSessionView.as_view(), name='set_active_session'),
 ]
 
 # ВАЖНО: Учим Django раздавать медиафайлы (картинки)!
