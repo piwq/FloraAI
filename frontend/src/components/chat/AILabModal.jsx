@@ -109,10 +109,11 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden p-4">
           {activeAnn && !isAnnotating ? (
             <>
-              {/* 🔥 ВОТ НАША МАГИЯ 🔥 */}
+              {/* ПЕРЕДАЕМ colorRoot ИЗ settings */}
               <InteractivePlantCanvas
                 imageUrl={activeAnn.image}
                 segments={activeAnn.segments || []}
+                colorRoot={settings.color_root}
               />
 
               <div className="absolute top-4 left-4 flex gap-2 pointer-events-none z-50">
