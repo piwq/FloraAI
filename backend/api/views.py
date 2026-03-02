@@ -291,6 +291,7 @@ class ChatDetailAPIView(APIView):
         messages = session.messages.all().order_by('created_at')
         return Response([
             {
+                "id": m.id,
                 "role": m.role,
                 "content": m.content,
                 "image": request.build_absolute_uri(m.image.url) if m.image else None
