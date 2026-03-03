@@ -10,8 +10,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeTab, setActiveTab] = useState('settings');
 
-  // --- DEEP SCAN СТЕЙТЫ ---
-  const [isDeepScan, setIsDeepScan] = useState(false);
+  // --- РЕЖИМЫ СКАНИРОВАНИЯ ---
+  const [scanMode, setScanMode] = useState('express'); // 'express' | 'deep_scan' | 'ultra_scan'
   const [scanStep, setScanStep] = useState(0);
 
   const [settings, setSettings] = useState({
@@ -28,40 +28,58 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
 
   const [showAdvancedAI, setShowAdvancedAI] = useState(false);
 
-  useEffect(() => {
-    getUserProfile().then(res => {
-      const data = res.data;
-      setSettings({
-        yolo_conf: data.yolo_conf ? String(data.yolo_conf) : "0.25",
-        yolo_iou: data.yolo_iou ? String(data.yolo_iou) : "0.7",
-        yolo_imgsz: data.yolo_imgsz ? String(data.yolo_imgsz) : "1024",
-        color_leaf: data.color_leaf || '#16A34A',
-        color_root: data.color_root || '#9333EA',
-        color_stem: data.color_stem || '#2563EB',
-        show_leaf: true, show_root: true, show_stem: true
-      });
-      if (initialAnnotations.length > 0) setActiveTab('history');
-    }).catch(err => console.error(err));
-  }, [initialAnnotations]);
-
-  // Эффект для динамического лоадера DeepScan
-  useEffect(() => {
+useEffect(() => {
     let interval;
-    if (isAnnotating && isDeepScan) {
+    if (isAnnotating) {
       setScanStep(0);
-      interval = setInterval(() => {
-        setScanStep((prev) => (prev < 3 ? prev + 1 : prev));
-      }, 3000); // Меняем текст каждые 3 секунды
+
+      // УСКОРЕННАЯ АНИМАЦИЯ: меняем текст каждые 600 мс, т.к. сервер работает очень быстро!
+      const stepDuration = 600;
+      const maxSteps = scanMode === 'ultra_scan' ? ultraScanSteps.length - 1 : deepScanSteps.length - 1;
+
+      if (scanMode !== 'express') {
+        interval = setInterval(() => {
+          setScanStep((prev) => (prev < maxSteps ? prev + 1 : prev));
+        }, stepDuration);
+      }
     }
     return () => clearInterval(interval);
-  }, [isAnnotating, isDeepScan]);
+  }, [isAnnotating, scanMode]);
 
+  // Тексты для динамических лоадеров
   const deepScanSteps = [
     "Генерация оптических мутаций (1/5)...",
     "Анализ в глубоких тенях (CLAHE)...",
     "Голосование слоев нейросети...",
     "Построение 3D-топологии..."
   ];
+
+  const ultraScanSteps = [
+    "Нарезка сетки скользящего окна (SAHI)...",
+    "Анализ микро-секторов (1-3/9)...",
+    "Анализ микро-секторов (4-6/9)...",
+    "Анализ микро-секторов (7-9/9)...",
+    "Глобальный макро-прогон (CLAHE)...",
+    "Синтез масок и NMS-сплавление...",
+    "Хирургическое сращивание корней..."
+  ];
+
+  // Эффект для динамического лоадера
+  useEffect(() => {
+    let interval;
+    if (isAnnotating) {
+      setScanStep(0);
+      const stepDuration = scanMode === 'ultra_scan' ? 5000 : 3000; // UltraScan идет дольше
+      const maxSteps = scanMode === 'ultra_scan' ? ultraScanSteps.length - 1 : deepScanSteps.length - 1;
+
+      if (scanMode !== 'express') {
+        interval = setInterval(() => {
+          setScanStep((prev) => (prev < maxSteps ? prev + 1 : prev));
+        }, stepDuration);
+      }
+    }
+    return () => clearInterval(interval);
+  }, [isAnnotating, scanMode]);
 
   const handleGenerate = async () => {
     setIsAnnotating(true);
@@ -70,14 +88,14 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       const payload = { ...settings, yolo_conf: parseFloat(settings.yolo_conf), yolo_iou: parseFloat(settings.yolo_iou), yolo_imgsz: parseInt(settings.yolo_imgsz, 10) };
       await updateUserProfile(payload);
 
-      // Передаем флаг isDeepScan в API
-      const response = await getAnnotatedImage(messageId, isDeepScan);
+      // Передаем выбранный режим в API
+      const response = await getAnnotatedImage(messageId, scanMode);
 
       const newAnn = {
         id: response.data.id, image: response.data.annotated_image_url,
         conf: response.data.conf, iou: response.data.iou, imgsz: response.data.imgsz,
         segments: response.data.segments, leaves: response.data.leaves, stems: response.data.stems,
-        is_deep_scan: response.data.is_deep_scan
+        scan_mode: response.data.scan_mode
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
@@ -91,9 +109,9 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   const activeAnn = localAnnotations[activeIndex];
 
   const determineMode = (conf, iou) => {
-    if (conf === '0.1' && iou === '0.5') return 'scout';
-    if (conf === '0.25' && iou === '0.6') return 'lab';
-    if (conf === '0.4' && iou === '0.7') return 'expert';
+    if (String(conf) === '0.1' && String(iou) === '0.5') return 'scout';
+    if (String(conf) === '0.25' && String(iou) === '0.6') return 'lab';
+    if (String(conf) === '0.4' && String(iou) === '0.7') return 'expert';
     return 'custom';
   };
   const currentMode = determineMode(settings.yolo_conf, settings.yolo_iou);
@@ -117,21 +135,30 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
               {/* --- ДИНАМИЧЕСКИЙ ЛОАДЕР --- */}
               {isAnnotating && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 transition-all">
-                  <div className="relative w-20 h-20 mb-6">
-                    <div className="absolute inset-0 border-4 border-green-500/20 rounded-full"></div>
-                    <div className={`absolute inset-0 border-4 rounded-full animate-spin ${isDeepScan ? 'border-purple-500 border-t-transparent' : 'border-green-500 border-t-transparent'}`}></div>
-                    {isDeepScan && <div className="absolute inset-0 flex items-center justify-center text-3xl animate-pulse">🧠</div>}
+                  <div className="relative w-24 h-24 mb-6">
+                    <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+                    <div className={`absolute inset-0 border-4 rounded-full animate-spin
+                      ${scanMode === 'ultra_scan' ? 'border-red-500 border-t-transparent' :
+                        scanMode === 'deep_scan' ? 'border-purple-500 border-t-transparent' : 'border-green-500 border-t-transparent'}`}>
+                    </div>
+                    {scanMode !== 'express' && (
+                      <div className="absolute inset-0 flex items-center justify-center text-4xl animate-pulse">
+                        {scanMode === 'ultra_scan' ? '🧬' : '🧠'}
+                      </div>
+                    )}
                   </div>
 
                   <p className="text-white font-bold text-xl tracking-wide text-center px-4">
-                    {isDeepScan ? deepScanSteps[scanStep] : "Нейросеть анализирует биомассу..."}
+                    {scanMode === 'ultra_scan' ? ultraScanSteps[scanStep] :
+                     scanMode === 'deep_scan' ? deepScanSteps[scanStep] :
+                     "Нейросеть анализирует биомассу..."}
                   </p>
 
-                  {isDeepScan && (
-                    <div className="w-64 bg-gray-800 h-2 rounded-full mt-6 overflow-hidden shadow-inner border border-white/10">
+                  {scanMode !== 'express' && (
+                    <div className="w-72 bg-gray-800 h-2 rounded-full mt-6 overflow-hidden shadow-inner border border-white/10">
                       <div
-                        className="bg-gradient-to-r from-purple-500 to-blue-500 h-full transition-all duration-1000 ease-out"
-                        style={{ width: `${(scanStep + 1) * 25}%` }}
+                        className={`h-full transition-all duration-1000 ease-out ${scanMode === 'ultra_scan' ? 'bg-gradient-to-r from-red-500 to-orange-500' : 'bg-gradient-to-r from-purple-500 to-blue-500'}`}
+                        style={{ width: `${(scanStep + 1) * (100 / (scanMode === 'ultra_scan' ? ultraScanSteps.length : deepScanSteps.length))}%` }}
                       ></div>
                     </div>
                   )}
@@ -166,7 +193,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                       <div className="flex flex-col flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold text-gray-800 text-sm">Версия v{localAnnotations.length - idx}</span>
-                          {ann.is_deep_scan && <span className="bg-purple-100 text-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">DeepScan</span>}
+                          {ann.scan_mode === 'ultra_scan' && <span className="bg-red-100 text-red-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">UltraScan</span>}
+                          {ann.scan_mode === 'deep_scan' && <span className="bg-purple-100 text-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">DeepScan</span>}
                         </div>
                         <div className="flex gap-2 text-[10px] text-gray-500 uppercase font-bold">
                           <span className="bg-white border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">Conf: {ann.conf}</span>
@@ -204,70 +232,43 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
 
                 {/* РУЧНЫЕ НАСТРОЙКИ (СКРЫТЫЕ) */}
                 <div className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedAI(!showAdvancedAI)}
-                    className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-100 transition-colors"
-                  >
+                  <button type="button" onClick={() => setShowAdvancedAI(!showAdvancedAI)} className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-100 transition-colors">
                     Инженерные параметры <span>{showAdvancedAI ? '▲' : '▼'}</span>
                   </button>
-
                   {showAdvancedAI && (
                     <div className="p-5 border-t border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-6 bg-white animate-fade-in-up">
-                      {/* Порог уверенности (Conf) */}
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Порог уверенности (Conf)</span>
-                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded shadow-sm">
-                            {settings.yolo_conf}
-                          </span>
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded shadow-sm">{settings.yolo_conf}</span>
                         </div>
                         <input
-                          type="range"
-                          min="0.05"
-                          max="0.95"
-                          step="0.05"
+                          type="range" min="0.05" max="0.95" step="0.05"
                           value={settings.yolo_conf}
-                          onChange={e => setSettings({ ...settings, yolo_conf: e.target.value })}
+                          onChange={e => setSettings({...settings, yolo_conf: e.target.value})}
                           className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600"
                         />
                       </div>
-
-                      {/* Радиус склейки (IoU) */}
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Радиус (IoU)</span>
-                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded shadow-sm">
-                            {settings.yolo_iou}
-                          </span>
+                          <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded shadow-sm">{settings.yolo_iou}</span>
                         </div>
                         <input
-                          type="range"
-                          min="0.1"
-                          max="0.9"
-                          step="0.05"
+                          type="range" min="0.1" max="0.9" step="0.05"
                           value={settings.yolo_iou}
-                          onChange={e => setSettings({ ...settings, yolo_iou: e.target.value })}
+                          onChange={e => setSettings({...settings, yolo_iou: e.target.value})}
                           className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600"
                         />
                       </div>
-
-                      {/* Разрешение матрицы (IMGSZ) */}
                       <div className="md:col-span-2 pt-2 border-t border-gray-100">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase block mb-2 tracking-wider">
-                          Разрешение матрицы (IMGSZ)
-                        </label>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase block mb-2 tracking-wider">Разрешение матрицы (IMGSZ)</label>
                         <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
                           {['480', '640', '1024', '2048'].map(size => (
                             <button
-                              type="button"
-                              key={size}
-                              onClick={() => setSettings({ ...settings, yolo_imgsz: size })}
-                              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${
-                                settings.yolo_imgsz === size
-                                  ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-                                  : 'text-gray-500 hover:text-gray-700'
-                              }`}
+                              type="button" key={size}
+                              onClick={() => setSettings({...settings, yolo_imgsz: size})}
+                              className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${settings.yolo_imgsz === size ? 'bg-white text-gray-900 shadow-sm border border-gray-100' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                               {size}
                             </button>
@@ -280,71 +281,60 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
 
                 {/* ВИЗУАЛИЗАЦИЯ */}
                 <div>
-                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 block flex items-center gap-2">
-                    🎨 Палитра слоев
-                  </label>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 block flex items-center gap-2">🎨 Палитра слоев</label>
                   <div className="grid grid-cols-3 gap-2">
                     {['leaf', 'root', 'stem'].map(layer => {
                       const names = { leaf: 'Листья', root: 'Корни', stem: 'Стебли' };
                       const isVisible = settings[`show_${layer}`];
                       return (
-                        <div
-                          key={layer}
-                          className={`flex flex-col items-center p-2.5 bg-white rounded-xl border shadow-sm transition-all ${
-                            !isVisible ? 'opacity-50 grayscale border-dashed' : 'border-gray-200'
-                          }`}
-                        >
+                        <div key={layer} className={`flex flex-col items-center p-2.5 bg-white rounded-xl border shadow-sm transition-all ${!isVisible ? 'opacity-50 grayscale border-dashed' : 'border-gray-200'}`}>
                           <div className="flex justify-between w-full mb-2 px-1">
                             <span className="text-[10px] text-gray-500 uppercase font-bold">{names[layer]}</span>
-                            <button
-                              type="button"
-                              onClick={() => setSettings({ ...settings, [`show_${layer}`]: !isVisible })}
-                              className="text-gray-400 hover:text-gray-800"
-                            >
-                              {isVisible ? '👁️' : '🚫'}
-                            </button>
+                            <button type="button" onClick={() => setSettings({...settings, [`show_${layer}`]: !isVisible})} className="text-gray-400 hover:text-gray-800">{isVisible ? '👁️' : '🚫'}</button>
                           </div>
-                          <input
-                            type="color"
-                            disabled={!isVisible}
-                            value={settings[`color_${layer}`]}
-                            onChange={e => setSettings({ ...settings, [`color_${layer}`]: e.target.value })}
-                            className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
-                          />
+                          <input type="color" disabled={!isVisible} value={settings[`color_${layer}`]} onChange={e => setSettings({...settings, [`color_${layer}`]: e.target.value})} className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent" />
                         </div>
-                      );
+                      )
                     })}
                   </div>
                 </div>
+
               </div>
             )}
           </div>
 
           <div className="p-4 bg-white border-t border-gray-200">
-            {/* ТУМБЛЕР РЕЖИМА DEEP SCAN */}
-            <div className="mb-4 bg-gray-50 p-1.5 rounded-xl flex border border-gray-200">
+            {/* ТУМБЛЕР РЕЖИМА СКАНИРОВАНИЯ (3 ПЕРЕДАЧИ) */}
+            <div className="mb-4 bg-gray-50 p-1 rounded-xl flex border border-gray-200 shadow-inner">
               <button
-                onClick={() => setIsDeepScan(false)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${!isDeepScan ? 'bg-white text-gray-900 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
+                onClick={() => setScanMode('express')}
+                className={`flex-1 py-2.5 rounded-lg text-[10px] uppercase tracking-wider font-black transition-all flex flex-col items-center justify-center gap-1 ${scanMode === 'express' ? 'bg-white text-gray-900 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
               >
-                <span className="text-lg">⚡</span>
-                <span>Express</span>
+                <span className="text-xl">⚡</span> Express
               </button>
               <button
-                onClick={() => setIsDeepScan(true)}
-                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${isDeepScan ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-600'}`}
+                onClick={() => setScanMode('deep_scan')}
+                className={`flex-1 py-2.5 rounded-lg text-[10px] uppercase tracking-wider font-black transition-all flex flex-col items-center justify-center gap-1 ${scanMode === 'deep_scan' ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-600'}`}
               >
-                <span className="text-lg">🔬</span>
-                <span>DeepScan TTA</span>
+                <span className="text-xl">🧠</span> DeepScan
+              </button>
+              <button
+                onClick={() => setScanMode('ultra_scan')}
+                className={`flex-1 py-2.5 rounded-lg text-[10px] uppercase tracking-wider font-black transition-all flex flex-col items-center justify-center gap-1 ${scanMode === 'ultra_scan' ? 'bg-gradient-to-r from-red-600 to-orange-500 text-white shadow-md' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <span className="text-xl">🧬</span> UltraScan
               </button>
             </div>
 
             <button
               onClick={handleGenerate}
               disabled={isAnnotating}
-              className={`w-full text-white py-4 rounded-xl text-sm font-bold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 ${isDeepScan ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700' : 'bg-gray-900 hover:bg-black'}`}
+              className={`w-full text-white py-4 rounded-xl text-sm font-bold transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2
+                ${scanMode === 'ultra_scan' ? 'bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-700 hover:to-orange-600' :
+                  scanMode === 'deep_scan' ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700' :
+                  'bg-gray-900 hover:bg-black'}`}
             >
-              {isAnnotating ? 'СКАНИРОВАНИЕ...' : (isDeepScan ? 'ЗАПУСТИТЬ DEEP SCAN' : 'ЗАПУСТИТЬ АНАЛИЗ')}
+              {isAnnotating ? 'СКАНИРОВАНИЕ...' : 'ЗАПУСТИТЬ АНАЛИЗ'}
             </button>
           </div>
 

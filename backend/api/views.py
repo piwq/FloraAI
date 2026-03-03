@@ -412,7 +412,6 @@ class SetActiveSessionView(APIView):
             return Response({"status": "ok"})
         return Response({"error": "User not found"}, status=404)
 
-# --- НОВЫЙ ЭНДПОИНТ ДЛЯ ПОЛУЧЕНИЯ КАРТИНКИ С РАЗМЕТКОЙ ---
 class AnnotateMessageView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -423,10 +422,8 @@ class AnnotateMessageView(APIView):
 
         user = request.user
 
-        # Получаем флаг DeepScan из запроса React
-        deep_scan = request.data.get('deep_scan', False)
-        if isinstance(deep_scan, str):
-            deep_scan = deep_scan.lower() == 'true'
+        # Получаем режим сканирования (по умолчанию express)
+        scan_mode = request.data.get('scan_mode', 'express')
 
         user_conf = getattr(user, 'yolo_conf', None)
         user_conf = float(user_conf) if user_conf is not None else 0.1
@@ -443,9 +440,9 @@ class AnnotateMessageView(APIView):
 
         message.image.seek(0)
 
-        # ПЕРЕДАЕМ ФЛАГ deep_scan В ML-КЛИЕНТ
+        # ПЕРЕДАЕМ ФЛАГ scan_mode В ML-КЛИЕНТ
         annotated_file, segments, leaves, stems = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan
+            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, scan_mode
         )
 
         if annotated_file:
@@ -464,7 +461,7 @@ class AnnotateMessageView(APIView):
                 "segments": new_ann.segments,
                 "leaves": new_ann.leaves,
                 "stems": new_ann.stems,
-                "is_deep_scan": deep_scan  # Отдаем обратно для UI
+                "scan_mode": scan_mode
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)

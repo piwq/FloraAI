@@ -1,52 +1,56 @@
 import requests
+from django.core.files.base import ContentFile
 import base64
 import os
-from django.core.files.base import ContentFile
+
+ML_SERVICE_URL = os.environ.get('ML_SERVICE_URL', 'http://flora_ml:8001')
 
 
-def analyze_plant_image(image_file, conf, iou, imgsz):
-    files = {'file': (image_file.name, image_file.read(), image_file.content_type)}
-    data_payload = {'conf': conf, 'iou': iou, 'imgsz': imgsz}
+def analyze_plant_image(image_file, conf=0.1, iou=0.6, imgsz=2048, scan_mode="express"):
+    url = f"{ML_SERVICE_URL}/predict"
 
-    ml_data = {
-        "plant_type": "Неизвестно",
-        "leaf_area_cm2": 0,
-        "root_length_mm": 0,
-        "stem_length_mm": 0
+    filename = image_file.name if image_file.name else 'image.jpg'
+    files = {'file': (filename, image_file.read(), 'image/jpeg')}
+    image_file.seek(0)  # Сбрасываем указатель файла
+
+    data = {
+        'conf': str(conf),
+        'iou': str(iou),
+        'imgsz': str(imgsz),
+        'scan_mode': scan_mode
     }
-    annotated_image_content = None
 
     try:
-        response = requests.post("http://flora_ml:8001/predict", files=files, data=data_payload, timeout=40)
+        response = requests.post(url, files=files, data=data, timeout=120)
         if response.status_code == 200:
-            response_json = response.json()
-            img_b64 = response_json.pop('annotated_image_base64', None)
-
-            if img_b64:
-                image_data = base64.b64decode(img_b64)
-                annotated_image_content = ContentFile(image_data, name=f"annotated_{image_file.name}")
-
-            ml_data = response_json
+            return response.json()
     except Exception as e:
-        print(f"ML Error: {e}")
+        print(f"ML Predict Error: {e}")
 
-    return ml_data, annotated_image_content
+    return None
 
 
-def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False):
+def get_annotated_image(image_file, conf=0.1, iou=0.6, imgsz=2048, color_leaf="#16A34A", color_root="#9333EA",
+                        color_stem="#2563EB", scan_mode="express"):
+    url = f"{ML_SERVICE_URL}/annotate"
+
+    filename = image_file.name if image_file.name else 'image.jpg'
+    files = {'file': (filename, image_file.read(), 'image/jpeg')}
+    image_file.seek(0)  # Сбрасываем указатель файла
+
+    data = {
+        'conf': str(conf),
+        'iou': str(iou),
+        'imgsz': str(imgsz),
+        'color_leaf': color_leaf,
+        'color_root': color_root,
+        'color_stem': color_stem,
+        'scan_mode': scan_mode
+    }
+
     try:
-        filename = os.path.basename(image_file.name)
-        file_content = image_file.read()
-
-        files = {'file': (filename, file_content, 'image/jpeg')}
-        # Передаем цвета в ML-сервис
-        data_payload = {
-            'conf': conf, 'iou': iou, 'imgsz': imgsz,
-            'color_leaf': color_leaf, 'color_root': color_root, 'color_stem': color_stem,
-            'deep_scan': 'true' if deep_scan else 'false'
-        }
-
-        response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=120)
+        # Увеличиваем таймаут до 120 секунд для UltraScan
+        response = requests.post(url, files=files, data=data, timeout=120)
 
         if response.status_code == 200:
             resp_json = response.json()
@@ -54,11 +58,11 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
             segments = resp_json.get('segments', [])
             leaves = resp_json.get('leaves', [])
             stems = resp_json.get('stems', [])
+
             if img_b64:
                 image_data = base64.b64decode(img_b64)
-                # Возвращаем кортеж (файл, сегменты)
                 return ContentFile(image_data, name=f"annotated_{filename}"), segments, leaves, stems
     except Exception as e:
         print(f"ML Annotate Error: {e}")
 
-    return None, [], [], []  # <--- ДОБАВИТЬ ПУСТЫЕ МАССИВЫ ПРИ ОШИБКЕ
+    return None, [], [], []

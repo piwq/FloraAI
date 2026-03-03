@@ -43,9 +43,9 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   });
 };
 
-export const getAnnotatedImage = (messageId, isDeepScan = false) => {
-    return apiClient.post(`chat/message/${messageId}/annotate/`, {
-        deep_scan: isDeepScan
+export const getAnnotatedImage = (messageId, scanMode = "express") => {
+    return apiClient.post(`/chat/message/${messageId}/annotate/`, {
+        scan_mode: scanMode
     });
 };
 
