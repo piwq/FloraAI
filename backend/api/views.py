@@ -9,7 +9,7 @@ import os
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .services.ml_client import analyze_plant_image, get_annotated_image
+from .services.ml_client import analyze_plant_image, get_annotated_image, calibrate_camera
 from .services.yandex_gpt_client import get_agronomist_reply
 
 User = get_user_model()
@@ -154,7 +154,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
 
         # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
         image.seek(0)
-        ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz)  # Убрали annotated_image_content
+        ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz, user=user)
         image.seek(0)
 
         analysis = PlantAnalysis.objects.create(
@@ -245,7 +245,7 @@ class ChatAPIView(APIView):
 
             image.seek(0)
             # Получаем только текст, игнорируем картинку-разметку
-            ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz)
+            ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz, user=user)
 
             bot_reply_text = (
                 f"✅ Фото проанализировано!\n\n"
@@ -445,7 +445,7 @@ class AnnotateMessageView(APIView):
 
         # ПЕРЕДАЕМ ФЛАГ deep_scan В ML-КЛИЕНТ
         annotated_file, segments, leaves, stems = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan
+            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, user=user
         )
 
         if annotated_file:
@@ -468,3 +468,39 @@ class AnnotateMessageView(APIView):
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CalibrateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        images = request.FILES.getlist('images')
+        if not images or len(images) < 3:
+            return Response({"error": "Загрузите минимум 3 фото шахматной доски"}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = int(request.data.get('rows', 6))
+        cols = int(request.data.get('cols', 9))
+        square_size_mm = float(request.data.get('square_size_mm', 25.0))
+
+        result = calibrate_camera(images, rows, cols, square_size_mm)
+
+        if result.get('success'):
+            user = request.user
+            user.calib_camera_matrix = result['camera_matrix']
+            user.calib_dist_coeffs = result['dist_coeffs']
+            user.calib_mm_per_pixel = result['mm_per_pixel']
+            user.calib_cm2_per_pixel = result['cm2_per_pixel']
+            user.calib_reprojection_error = result['reprojection_error']
+            user.save()
+
+        return Response(result)
+
+    def delete(self, request):
+        user = request.user
+        user.calib_camera_matrix = None
+        user.calib_dist_coeffs = None
+        user.calib_mm_per_pixel = None
+        user.calib_cm2_per_pixel = None
+        user.calib_reprojection_error = None
+        user.save()
+        return Response({"status": "reset", "message": "Калибровка сброшена к стандартной"})

@@ -13,8 +13,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag', 'yolo_conf', 'yolo_iou', 'yolo_imgsz', 'color_leaf', 'color_root', 'color_stem')
-        read_only_fields = ('id', 'username', 'email')
+        fields = ('id', 'username', 'email', 'name', 'birthDate', 'subscriptionStatus', 'remainingInterpretations', 'telegramTag', 'yolo_conf', 'yolo_iou', 'yolo_imgsz', 'color_leaf', 'color_root', 'color_stem', 'calib_mm_per_pixel', 'calib_cm2_per_pixel', 'calib_reprojection_error')
+        read_only_fields = ('id', 'username', 'email', 'calib_mm_per_pixel', 'calib_cm2_per_pixel', 'calib_reprojection_error')
 
     def get_subscriptionStatus(self, obj):
         return 'PREMIUM' if obj.is_premium else 'BASIC'

@@ -49,6 +49,13 @@ export const getAnnotatedImage = (messageId, isDeepScan = false) => {
     });
 };
 
+// Калибровка камеры
+export const calibrateCamera = (formData) => apiClient.post('/calibrate/', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 60000,
+});
+export const resetCalibration = () => apiClient.delete('/calibrate/');
+
 // Интеграции и оплата
 export const linkTelegram = (data) => apiClient.post('/auth/telegram/link/', data);
 export const mockSubscribeToPremium = () => apiClient.post('/payment/mock-subscribe');

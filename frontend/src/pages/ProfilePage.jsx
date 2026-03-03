@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Header } from '@/components/app/Header'; 
-import { getUserProfile, updateUserProfile, changePassword } from '@/services/apiClient';
+import { getUserProfile, updateUserProfile, changePassword, calibrateCamera, resetCalibration } from '@/services/apiClient';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 
@@ -21,6 +21,14 @@ const ProfilePage = () => {
 
   const [showAdvancedAI, setShowAdvancedAI] = useState(false);
 
+  // Калибровка камеры
+  const [calibFiles, setCalibFiles] = useState([]);
+  const [calibRows, setCalibRows] = useState('6');
+  const [calibCols, setCalibCols] = useState('9');
+  const [calibSquare, setCalibSquare] = useState('25');
+  const [calibLoading, setCalibLoading] = useState(false);
+  const [calibResult, setCalibResult] = useState(null); // {mm_per_pixel, reprojection_error, images_used}
+
   const todayDateStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -39,6 +47,12 @@ const ProfilePage = () => {
         if (data.color_leaf) setColorLeaf(data.color_leaf);
         if (data.color_root) setColorRoot(data.color_root);
         if (data.color_stem) setColorStem(data.color_stem);
+        if (data.calib_mm_per_pixel) {
+          setCalibResult({
+            mm_per_pixel: data.calib_mm_per_pixel,
+            reprojection_error: data.calib_reprojection_error,
+          });
+        }
       } catch (error) {
         toast.error('Не удалось загрузить профиль.');
       } finally {
@@ -91,6 +105,40 @@ const ProfilePage = () => {
         setPasswordData({ currentPassword: '', newPassword: '' });
     } catch (error) {
         toast.error(error.response?.data?.error || 'Ошибка при смене пароля.', { style: { background: '#333', color: '#fff' } });
+    }
+  };
+
+  const handleCalibrate = async () => {
+    if (calibFiles.length < 3) return toast.error('Загрузите минимум 3 фото шахматной доски');
+    setCalibLoading(true);
+    try {
+      const formData = new FormData();
+      calibFiles.forEach(f => formData.append('images', f));
+      formData.append('rows', calibRows);
+      formData.append('cols', calibCols);
+      formData.append('square_size_mm', calibSquare);
+      const res = await calibrateCamera(formData);
+      if (res.data.success) {
+        setCalibResult(res.data);
+        setCalibFiles([]);
+        toast.success(`Калибровка завершена! Использовано ${res.data.images_used}/${res.data.images_total} фото`, { style: { background: '#333', color: '#fff' } });
+      } else {
+        toast.error(res.data.error || 'Ошибка калибровки', { style: { background: '#333', color: '#fff' } });
+      }
+    } catch (err) {
+      toast.error('Ошибка калибровки камеры', { style: { background: '#333', color: '#fff' } });
+    } finally {
+      setCalibLoading(false);
+    }
+  };
+
+  const handleResetCalibration = async () => {
+    try {
+      await resetCalibration();
+      setCalibResult(null);
+      toast.success('Калибровка сброшена к стандартной', { style: { background: '#333', color: '#fff' } });
+    } catch (err) {
+      toast.error('Ошибка сброса калибровки');
     }
   };
 
@@ -268,6 +316,64 @@ const ProfilePage = () => {
                           <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{layer.label}</span>
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* КАЛИБРОВКА КАМЕРЫ */}
+                  <div>
+                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">📐 Калибровка камеры</label>
+
+                    {calibResult && (
+                      <div className="mb-4 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Активная калибровка</span>
+                          <button onClick={handleResetCalibration} className="text-[10px] font-bold text-red-400 hover:text-red-300 uppercase tracking-wider transition-colors">Сбросить</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="bg-black/30 p-2 rounded-lg">
+                            <span className="text-gray-500 block">мм/пиксель</span>
+                            <span className="text-white font-mono font-bold">{calibResult.mm_per_pixel}</span>
+                          </div>
+                          <div className="bg-black/30 p-2 rounded-lg">
+                            <span className="text-gray-500 block">Ошибка репроекции</span>
+                            <span className="text-white font-mono font-bold">{calibResult.reprojection_error ?? '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 p-4 border border-white/5 rounded-xl bg-[#1a1d24]">
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Фото шахматной доски (мин. 3)</label>
+                        <input
+                          type="file" accept="image/*" multiple
+                          onChange={(e) => setCalibFiles(Array.from(e.target.files))}
+                          className="w-full text-xs text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-white/10 file:text-gray-300 hover:file:bg-white/20 file:cursor-pointer file:transition-colors"
+                        />
+                        {calibFiles.length > 0 && <p className="text-[10px] text-gray-500 mt-1">Выбрано: {calibFiles.length} фото</p>}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Строки</label>
+                          <input type="number" min="2" max="20" value={calibRows} onChange={e => setCalibRows(e.target.value)} className="w-full bg-[#0f1115] border border-white/10 rounded-lg p-2 text-sm text-white outline-none focus:border-green-500" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Столбцы</label>
+                          <input type="number" min="2" max="20" value={calibCols} onChange={e => setCalibCols(e.target.value)} className="w-full bg-[#0f1115] border border-white/10 rounded-lg p-2 text-sm text-white outline-none focus:border-green-500" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Квадрат (мм)</label>
+                          <input type="number" min="1" max="100" step="0.1" value={calibSquare} onChange={e => setCalibSquare(e.target.value)} className="w-full bg-[#0f1115] border border-white/10 rounded-lg p-2 text-sm text-white outline-none focus:border-green-500" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-600 leading-relaxed">Укажите количество <b className="text-gray-400">внутренних углов</b> шахматной доски (не квадратов). Для стандартной доски 10x7 квадратов: строки=6, столбцы=9.</p>
+                      <button
+                        onClick={handleCalibrate}
+                        disabled={calibLoading || calibFiles.length < 3}
+                        className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-xl transition-all text-sm flex items-center justify-center gap-2"
+                      >
+                        {calibLoading ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Калибрую...</> : 'Откалибровать камеру'}
+                      </button>
                     </div>
                   </div>
 

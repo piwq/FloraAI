@@ -19,6 +19,13 @@ class User(AbstractUser):
     # ДОБАВЛЯЕМ ПОЛЕ ДЛЯ ФРОНТЕНДА
     birth_date = models.DateField(null=True, blank=True)
 
+    # Калибровка камеры (персональная)
+    calib_camera_matrix = models.JSONField(null=True, blank=True, verbose_name="Camera Matrix")
+    calib_dist_coeffs = models.JSONField(null=True, blank=True, verbose_name="Distortion Coefficients")
+    calib_mm_per_pixel = models.FloatField(null=True, blank=True, verbose_name="мм/пиксель")
+    calib_cm2_per_pixel = models.FloatField(null=True, blank=True, verbose_name="см²/пиксель")
+    calib_reprojection_error = models.FloatField(null=True, blank=True, verbose_name="Ошибка репроекции")
+
     def __str__(self):
         return self.username
 

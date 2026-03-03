@@ -1,4 +1,6 @@
 import os, base64
+import json
+from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form
 from ultralytics import YOLO
 import cv2
@@ -74,7 +76,10 @@ def get_polygons_from_mask(mask, offset_id=0):
     return polygons, count
 
 
-def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=False):
+def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=False,
+                    mm_per_pixel=None, cm2_per_pixel=None):
+    mm_per_pixel = mm_per_pixel or MM_PER_PIXEL
+    cm2_per_pixel = cm2_per_pixel or CM2_PER_PIXEL
     h, w = img.shape[:2]
 
     metrics = {
@@ -180,7 +185,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
     metrics["leaves"], metrics["leaf_count"] = get_polygons_from_mask(leaf_mask, 0)
     metrics["stems"], metrics["stem_count"] = get_polygons_from_mask(stem_mask, 0)
 
-    metrics["leaf_area_cm2"] = float(round(np.sum(leaf_mask) * CM2_PER_PIXEL, 2))
+    metrics["leaf_area_cm2"] = float(round(np.sum(leaf_mask) * cm2_per_pixel, 2))
 
     # === КЛАССИФИКАЦИЯ РАСТЕНИЯ (пшеница vs руккола) ===
     # Пшеница: длинные узкие листья (высокий aspect ratio)
@@ -226,7 +231,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
         freeman_kernel = np.array([[_sqrt2, 1, _sqrt2], [1, 0, 1], [_sqrt2, 1, _sqrt2]])
         neighbor_dists = cv2.filter2D(stem_skel.astype(np.float64), -1, freeman_kernel)
         stem_length_px = np.sum(neighbor_dists[stem_skel > 0]) / 2.0  # каждое ребро посчитано дважды
-        metrics["stem_length_mm"] = float(round(stem_length_px * MM_PER_PIXEL, 2))
+        metrics["stem_length_mm"] = float(round(stem_length_px * mm_per_pixel, 2))
 
         # === ПРОФИЛЬ ТОЛЩИНЫ СТЕБЛЯ ===
         stem_dist = cv2.distanceTransform(stem_mask, cv2.DIST_L2, 5)
@@ -243,9 +248,9 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
             tip_radii = [stem_dist[y, x] for y, x in tip_region if stem_dist[y, x] > 0]
 
             if base_radii:
-                metrics["stem_base_width_mm"] = float(round(np.median(base_radii) * 2 * MM_PER_PIXEL, 3))
+                metrics["stem_base_width_mm"] = float(round(np.median(base_radii) * 2 * mm_per_pixel, 3))
             if tip_radii:
-                metrics["stem_tip_width_mm"] = float(round(np.median(tip_radii) * 2 * MM_PER_PIXEL, 3))
+                metrics["stem_tip_width_mm"] = float(round(np.median(tip_radii) * 2 * mm_per_pixel, 3))
             if base_radii and tip_radii and np.median(base_radii) > 0:
                 metrics["stem_taper_ratio"] = float(round(
                     np.median(tip_radii) / np.median(base_radii), 4
@@ -273,7 +278,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
             for index, row in branch_data.iterrows():
                 b_dist = row.get('branch-distance') if 'branch-distance' in row else row.get('branch_distance')
                 b_type = row.get('branch-type') if 'branch-type' in row else row.get('branch_type')
-                dist_mm = b_dist * MM_PER_PIXEL
+                dist_mm = b_dist * mm_per_pixel
                 if b_type == 1 and dist_mm < MIN_ROOT_LENGTH_MM: continue
 
                 valid_branch_indices.append(index)
@@ -321,12 +326,12 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
             for index in valid_branch_indices:
                 row = branch_data.loc[index]
                 b_dist = row.get('branch-distance') if 'branch-distance' in row else row.get('branch_distance')
-                dist_mm = b_dist * MM_PER_PIXEL
+                dist_mm = b_dist * mm_per_pixel
                 coords = skeleton_obj.path_coordinates(index).astype(int)
 
                 radii = [dist_transform[y, x] for y, x in coords]
                 true_rad_px = np.median(radii) if len(radii) >= MICRO_SEGMENT_PX else (np.mean(radii) if radii else 0)
-                true_rad_mm = true_rad_px * MM_PER_PIXEL
+                true_rad_mm = true_rad_px * mm_per_pixel
                 vol_mm3 = np.pi * (true_rad_mm ** 2) * dist_mm
 
                 is_primary = index in primary_edges
@@ -385,8 +390,8 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
                 sys_width_px = float(xs.max() - xs.min())
                 sys_depth_px = float(ys.max() - ys.min())
 
-                metrics["root_system_width_mm"] = float(round(sys_width_px * MM_PER_PIXEL, 2))
-                metrics["root_system_depth_mm"] = float(round(sys_depth_px * MM_PER_PIXEL, 2))
+                metrics["root_system_width_mm"] = float(round(sys_width_px * mm_per_pixel, 2))
+                metrics["root_system_depth_mm"] = float(round(sys_depth_px * mm_per_pixel, 2))
                 metrics["root_density"] = float(round(
                     root_area_px / (hull_area_px + 1e-6), 4
                 ))
@@ -401,14 +406,14 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
             print(f"Ошибка анализа графов: {e}")
 
     # === ПЛОЩАДИ МАСОК (проекция, мм²) ===
-    MM2_PER_PIXEL = MM_PER_PIXEL ** 2
+    MM2_PER_PIXEL = mm_per_pixel ** 2
     metrics["root_area_mm2"] = float(round(np.sum(root_mask) * MM2_PER_PIXEL, 2))
     metrics["stem_area_mm2"] = float(round(np.sum(stem_mask) * MM2_PER_PIXEL, 2))
 
     # === ПЕРИМЕТР ЛИСТЬЕВ (сумма по всем контурам, мм) ===
     if leaf_contours:
         total_perimeter_px = sum(cv2.arcLength(cnt, True) for cnt in leaf_contours if cv2.contourArea(cnt) > 20)
-        metrics["leaf_perimeter_mm"] = float(round(total_perimeter_px * MM_PER_PIXEL, 2))
+        metrics["leaf_perimeter_mm"] = float(round(total_perimeter_px * mm_per_pixel, 2))
 
     # === ФИНАЛЬНОЕ ОКРУГЛЕНИЕ ===
     metrics["primary_root_len_mm"] = float(round(metrics["primary_root_len_mm"], 2))
@@ -432,27 +437,62 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
     return metrics, None
 
 
+def _parse_calibration(camera_matrix_json: Optional[str], dist_coeffs_json: Optional[str],
+                       user_mm_per_pixel: Optional[float], user_cm2_per_pixel: Optional[float]):
+    """Парсит пользовательские параметры калибровки или возвращает глобальные."""
+    cam_mtx = CAMERA_MATRIX
+    d_coeffs = DIST_COEFFS
+    mpp = user_mm_per_pixel
+    cpp = user_cm2_per_pixel
+
+    if camera_matrix_json:
+        try:
+            cam_mtx = np.array(json.loads(camera_matrix_json))
+        except Exception:
+            pass
+    if dist_coeffs_json:
+        try:
+            d_coeffs = np.array(json.loads(dist_coeffs_json))
+        except Exception:
+            pass
+
+    return cam_mtx, d_coeffs, mpp, cpp
+
+
 @app.post("/predict")
 async def predict_plant(file: UploadFile = File(...),
                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
-                        deep_scan: bool = Form(False)):  # Добавлен флаг
+                        deep_scan: bool = Form(False),
+                        camera_matrix_json: Optional[str] = Form(None),
+                        dist_coeffs_json: Optional[str] = Form(None),
+                        user_mm_per_pixel: Optional[float] = Form(None),
+                        user_cm2_per_pixel: Optional[float] = Form(None)):
+    cam_mtx, d_coeffs, mpp, cpp = _parse_calibration(
+        camera_matrix_json, dist_coeffs_json, user_mm_per_pixel, user_cm2_per_pixel)
+
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
-    metrics, _ = analyze_biomass(img, conf, iou, imgsz, False, deep_scan)
+    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), cam_mtx, d_coeffs, None, cam_mtx)
+    metrics, _ = analyze_biomass(img, conf, iou, imgsz, False, deep_scan, mpp, cpp)
     return metrics
 
 
 @app.post("/annotate")
 async def annotate_plant(file: UploadFile = File(...),
                          conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
-                         deep_scan: bool = Form(False)):  # Добавлен флаг
+                         deep_scan: bool = Form(False),
+                         camera_matrix_json: Optional[str] = Form(None),
+                         dist_coeffs_json: Optional[str] = Form(None),
+                         user_mm_per_pixel: Optional[float] = Form(None),
+                         user_cm2_per_pixel: Optional[float] = Form(None)):
+    cam_mtx, d_coeffs, mpp, cpp = _parse_calibration(
+        camera_matrix_json, dist_coeffs_json, user_mm_per_pixel, user_cm2_per_pixel)
+
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), CAMERA_MATRIX, DIST_COEFFS, None, CAMERA_MATRIX)
+    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), cam_mtx, d_coeffs, None, cam_mtx)
 
-    # Передаем deep_scan в функцию
-    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, deep_scan)
+    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, deep_scan, mpp, cpp)
 
     if annotated_frame is None: return {"annotated_image_base64": None}
 
@@ -464,4 +504,85 @@ async def annotate_plant(file: UploadFile = File(...),
         "leaves": metrics.get("leaves", []),
         "stems": metrics.get("stems", []),
         "is_deep_scan": deep_scan
+    }
+
+
+@app.post("/calibrate")
+async def calibrate_camera(files: List[UploadFile] = File(...),
+                           rows: int = Form(6),
+                           cols: int = Form(9),
+                           square_size_mm: float = Form(25.0)):
+    """Калибровка камеры по шахматной доске (OpenCV).
+    Принимает несколько фотографий доски, возвращает camera_matrix, dist_coeffs, mm_per_pixel."""
+
+    objp = np.zeros((rows * cols, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * square_size_mm
+
+    objpoints = []
+    imgpoints = []
+    img_size = None
+    images_used = 0
+
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+    for f in files:
+        contents = await f.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            continue
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if img_size is None:
+            img_size = gray.shape[::-1]
+
+        found, corners = cv2.findChessboardCorners(gray, (cols, rows), None)
+        if found:
+            corners_refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            objpoints.append(objp)
+            imgpoints.append(corners_refined)
+            images_used += 1
+
+    if images_used < 3:
+        return {
+            "success": False,
+            "error": f"Найдена шахматная доска только на {images_used} из {len(files)} фото. Нужно минимум 3.",
+            "images_used": images_used,
+            "images_total": len(files)
+        }
+
+    ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
+        objpoints, imgpoints, img_size, None, None
+    )
+
+    # Расчёт mm_per_pixel: средняя дистанция между соседними углами в пикселях
+    pixel_dists = []
+    for corners in imgpoints:
+        corners_flat = corners.reshape(-1, 2)
+        for r in range(rows):
+            for c in range(cols - 1):
+                idx1 = r * cols + c
+                idx2 = r * cols + c + 1
+                d = np.linalg.norm(corners_flat[idx1] - corners_flat[idx2])
+                pixel_dists.append(d)
+        for r in range(rows - 1):
+            for c in range(cols):
+                idx1 = r * cols + c
+                idx2 = (r + 1) * cols + c
+                d = np.linalg.norm(corners_flat[idx1] - corners_flat[idx2])
+                pixel_dists.append(d)
+
+    mean_pixel_dist = np.mean(pixel_dists)
+    mm_pp = square_size_mm / mean_pixel_dist
+    cm2_pp = (mm_pp / 10.0) ** 2
+
+    return {
+        "success": True,
+        "camera_matrix": camera_matrix.tolist(),
+        "dist_coeffs": dist_coeffs.tolist(),
+        "mm_per_pixel": round(float(mm_pp), 6),
+        "cm2_per_pixel": round(float(cm2_pp), 8),
+        "reprojection_error": round(float(ret), 4),
+        "images_used": images_used,
+        "images_total": len(files)
     }
