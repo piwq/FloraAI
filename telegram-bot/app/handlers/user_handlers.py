@@ -1,6 +1,6 @@
 import os, aiohttp, re
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, CallbackQuery, \
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, \
     BufferedInputFile
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
@@ -13,7 +13,8 @@ from app.services.api_client import (
 
 from app.keyboards.inline_keyboards import (
     get_profile_keyboard, get_paginated_history_keyboard,
-    get_session_view_keyboard, get_confirm_delete_keyboard
+    get_session_view_keyboard, get_confirm_delete_keyboard,
+    get_webapp_keyboard, get_premium_keyboard
 )
 
 router = Router()
@@ -28,25 +29,6 @@ class SettingsStates(StatesGroup):
     wait_iou = State()
     wait_imgsz = State()
 
-
-def get_webapp_keyboard(tg_id: int, msg_id: int = 0):
-    webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="🌿 Привязать профиль FloraAI",
-            web_app=WebAppInfo(url=f"{webapp_url}/telegram-connect?tg_id={tg_id}&msg_id={msg_id}")
-        )]
-    ])
-
-
-def get_premium_keyboard():
-    webapp_url = os.getenv('WEBAPP_URL', 'https://your-domain.com')
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="💎 Оформить Premium",
-            web_app=WebAppInfo(url=f"{webapp_url}/tariffs")
-        )]
-    ])
 
 
 def format_llm_to_html(text: str) -> str:
@@ -272,6 +254,8 @@ async def handle_chat_photo(message: Message, state: FSMContext):
     session_id = state_data.get('session_id')
 
     if not session_id:
+        await state.clear()
+        await message.answer("⚠️ Сессия чата потеряна. Пожалуйста, отправьте новое фото.")
         return
 
     wait_msg = await message.answer("Пересылаю фото в чат... ⏳")

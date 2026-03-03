@@ -26,5 +26,7 @@ def get_agronomist_reply(system_prompt: str, past_messages: list, new_message: s
         with urllib.request.urlopen(req) as res:
             response_json = json.loads(res.read())
             return response_json['result']['alternatives'][0]['message']['text']
+    except (KeyError, IndexError, TypeError) as e:
+        return f"⚠️ Ошибка обработки ответа от Яндекс GPT: {str(e)}"
     except Exception as e:
         return f"⚠️ Ошибка связи с Яндекс: {str(e)}"

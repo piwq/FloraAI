@@ -301,7 +301,7 @@ class ChatDetailAPIView(APIView):
                 "annotations": [
                     {
                         "id": a.id,
-                        "image": request.build_absolute_uri(a.image.url),
+                        "image": request.build_absolute_uri(a.image.url) if a.image else None,
                         "conf": a.conf,
                         "iou": a.iou,
                         "imgsz": a.imgsz,
@@ -478,9 +478,12 @@ class CalibrateView(APIView):
         if not images or len(images) < 3:
             return Response({"error": "Загрузите минимум 3 фото шахматной доски"}, status=status.HTTP_400_BAD_REQUEST)
 
-        rows = int(request.data.get('rows', 6))
-        cols = int(request.data.get('cols', 9))
-        square_size_mm = float(request.data.get('square_size_mm', 25.0))
+        try:
+            rows = int(request.data.get('rows', 6))
+            cols = int(request.data.get('cols', 9))
+            square_size_mm = float(request.data.get('square_size_mm', 25.0))
+        except (ValueError, TypeError):
+            return Response({"error": "Некорректные числовые параметры"}, status=status.HTTP_400_BAD_REQUEST)
 
         result = calibrate_camera(images, rows, cols, square_size_mm)
 
