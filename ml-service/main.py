@@ -24,14 +24,10 @@ CM2_PER_PIXEL = float(os.getenv("CALIB_CM2_PER_PX", 0.000114))
 MIN_ROOT_LENGTH_MM = 2.0
 MICRO_SEGMENT_PX = 5
 
-CAMERA_MATRIX = np.array([
-    [16801.23224837294, 0.0, 984.2194327484033],
-    [0.0, 16782.95796193301, 837.8788984440081],
-    [0.0, 0.0, 1.0]
-])
-DIST_COEFFS = np.array(
-    [[-2.2404900497641926, 511.3571899037416, 0.06893033027219728, 0.11857984578290878, 2.2260582173175907]]
-)
+
+# Калибровка камеры теперь персональная (через /calibrate endpoint).
+# Глобальные CAMERA_MATRIX / DIST_COEFFS удалены — undistort применяется
+# только если пользователь прошёл калибровку.
 
 
 def box_counting_dimension(binary_img):
@@ -439,9 +435,12 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
 
 def _parse_calibration(camera_matrix_json: Optional[str], dist_coeffs_json: Optional[str],
                        user_mm_per_pixel: Optional[float], user_cm2_per_pixel: Optional[float]):
-    """Парсит пользовательские параметры калибровки или возвращает глобальные."""
-    cam_mtx = CAMERA_MATRIX
-    d_coeffs = DIST_COEFFS
+    """Парсит пользовательские параметры калибровки.
+    Возвращает (cam_mtx, dist_coeffs, mm_per_pixel, cm2_per_pixel).
+    cam_mtx и dist_coeffs = None, если пользователь не калибровал камеру
+    (undistort нельзя применять с чужими параметрами — это исказит фото)."""
+    cam_mtx = None
+    d_coeffs = None
     mpp = user_mm_per_pixel
     cpp = user_cm2_per_pixel
 
@@ -449,12 +448,12 @@ def _parse_calibration(camera_matrix_json: Optional[str], dist_coeffs_json: Opti
         try:
             cam_mtx = np.array(json.loads(camera_matrix_json))
         except Exception:
-            pass
+            cam_mtx = None
     if dist_coeffs_json:
         try:
             d_coeffs = np.array(json.loads(dist_coeffs_json))
         except Exception:
-            pass
+            d_coeffs = None
 
     return cam_mtx, d_coeffs, mpp, cpp
 
@@ -472,7 +471,9 @@ async def predict_plant(file: UploadFile = File(...),
 
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), cam_mtx, d_coeffs, None, cam_mtx)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if cam_mtx is not None and d_coeffs is not None:
+        img = cv2.undistort(img, cam_mtx, d_coeffs, None, cam_mtx)
     metrics, _ = analyze_biomass(img, conf, iou, imgsz, False, deep_scan, mpp, cpp)
     return metrics
 
@@ -490,7 +491,9 @@ async def annotate_plant(file: UploadFile = File(...),
 
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.undistort(cv2.imdecode(nparr, cv2.IMREAD_COLOR), cam_mtx, d_coeffs, None, cam_mtx)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if cam_mtx is not None and d_coeffs is not None:
+        img = cv2.undistort(img, cam_mtx, d_coeffs, None, cam_mtx)
 
     metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, deep_scan, mpp, cpp)
 
