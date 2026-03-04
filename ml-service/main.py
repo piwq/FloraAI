@@ -98,69 +98,70 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
         "specific_root_length": 0.0
     }
 
-    # === 1. ГЕНЕРАЦИЯ МУТАЦИЙ (TTA) ===
-    # Каждый элемент: (изображение, нужно_ли_зеркалить_маску_обратно)
-    images_to_process = [(img, False)]
+    # === 1. ГЕНЕРАЦИЯ АУГМЕНТАЦИЙ (TTA) ===
+    # Только фотометрические — пиксели остаются на местах, flip убран (вызывал артефакты)
+    images_to_process = [img]
 
     if deep_scan:
-        print("🔍 DEEP SCAN АКТИВИРОВАН: 7-ступенчатый TTA (фото + контраст + геометрия)...")
-        # Фотометрические мутации
-        img_bright = cv2.convertScaleAbs(img, alpha=1.1, beta=15)
-        img_contrast = cv2.convertScaleAbs(img, alpha=1.3, beta=0)
+        print("🔍 DEEP SCAN: 8-ступенчатый soft-voting TTA (точность > скорость)...")
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        l_channel, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        cl = clahe.apply(l_channel)
-        img_clahe = cv2.cvtColor(cv2.merge((cl, a, b)), cv2.COLOR_LAB2BGR)
-        img_dark = cv2.convertScaleAbs(img, alpha=0.9, beta=-15)
+        l_ch, a_ch, b_ch = cv2.split(lab)
 
-        # Геометрические мутации (маски зеркалим обратно при голосовании)
-        img_flipped_h = cv2.flip(img, 1)
-        img_flipped_h_bright = cv2.convertScaleAbs(img_flipped_h, alpha=1.15, beta=10)
+        # CLAHE с разной силой — ловит детали в тенях и пересветах
+        clahe_soft = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        img_clahe_soft = cv2.cvtColor(cv2.merge((clahe_soft.apply(l_ch), a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+        clahe_strong = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(16, 16))
+        img_clahe_strong = cv2.cvtColor(cv2.merge((clahe_strong.apply(l_ch), a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+
+        # Гамма-коррекция (нелинейная яркость) — лучше видны тёмные корни
+        gamma_table = np.array([((i / 255.0) ** 0.7) * 255 for i in range(256)]).astype(np.uint8)
+        img_gamma = cv2.LUT(img, gamma_table)
 
         images_to_process.extend([
-            (img_bright, False), (img_contrast, False),
-            (img_clahe, False), (img_dark, False),
-            (img_flipped_h, True), (img_flipped_h_bright, True),
+            cv2.convertScaleAbs(img, alpha=1.15, beta=15),   # яркость+
+            cv2.convertScaleAbs(img, alpha=1.35, beta=0),    # контраст+
+            img_clahe_soft,                                   # CLAHE мягкий
+            img_clahe_strong,                                 # CLAHE агрессивный
+            cv2.convertScaleAbs(img, alpha=0.85, beta=-15),  # затемнение
+            img_gamma,                                        # гамма-коррекция (тёмные области)
+            cv2.convertScaleAbs(img, alpha=1.2, beta=-10),   # контраст+ с затемнением
         ])
 
-    # Накопители голосов (каждый пиксель голосует, к какому классу он относится)
-    acc_leaf = np.zeros((h, w), dtype=np.uint8)
-    acc_root = np.zeros((h, w), dtype=np.uint8)
-    acc_stem = np.zeros((h, w), dtype=np.uint8)
+    # Мягкие аккумуляторы (float): каждый пиксель копит weighted score
+    acc_leaf = np.zeros((h, w), dtype=np.float32)
+    acc_root = np.zeros((h, w), dtype=np.float32)
+    acc_stem = np.zeros((h, w), dtype=np.float32)
 
-    # === 2. ПРОГОН НЕЙРОСЕТИ И ГОЛОСОВАНИЕ ===
-    for i, (aug_img, needs_flip_back) in enumerate(images_to_process):
+    # === 2. ПРОГОН НЕЙРОСЕТИ И SOFT VOTING ===
+    for aug_img in images_to_process:
         with torch.no_grad():
             res = model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
 
-        # Семантические маски текущей аугментации (merge всех экземпляров одного класса)
-        aug_leaf = np.zeros((h, w), dtype=np.uint8)
-        aug_root = np.zeros((h, w), dtype=np.uint8)
-        aug_stem = np.zeros((h, w), dtype=np.uint8)
+        # Мягкие маски текущей аугментации (max по экземплярам одного класса)
+        aug_leaf = np.zeros((h, w), dtype=np.float32)
+        aug_root = np.zeros((h, w), dtype=np.float32)
+        aug_stem = np.zeros((h, w), dtype=np.float32)
 
         if res.masks is not None:
-            boxes = res.boxes.cls.cpu().numpy()
+            classes = res.boxes.cls.cpu().numpy()
+            conf_scores = res.boxes.conf.cpu().numpy()
             masks_data = res.masks.data.cpu().numpy()
 
             for j in range(len(masks_data)):
-                cls_id = int(boxes[j])
-                mask_pixels = masks_data[j]
-                binary_mask = (mask_pixels > 0.5).astype(np.uint8)
-                temp_mask = cv2.resize(binary_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-
-                # Зеркалим маску обратно если изображение было отражено
-                if needs_flip_back:
-                    temp_mask = cv2.flip(temp_mask, 1)
+                cls_id = int(classes[j])
+                conf_j = float(conf_scores[j])
+                # Мягкая маска (0..1) * уверенность детектора → weighted score
+                soft_mask = cv2.resize(masks_data[j], (w, h), interpolation=cv2.INTER_LINEAR)
+                weighted = soft_mask * conf_j
 
                 if cls_id == 0:
-                    aug_leaf = np.maximum(aug_leaf, temp_mask)
+                    aug_leaf = np.maximum(aug_leaf, weighted)
                 elif cls_id == 1:
-                    aug_root = np.maximum(aug_root, temp_mask)
+                    aug_root = np.maximum(aug_root, weighted)
                 elif cls_id == 2:
-                    aug_stem = np.maximum(aug_stem, temp_mask)
+                    aug_stem = np.maximum(aug_stem, weighted)
 
-        # Каждая аугментация даёт ровно 1 голос за пиксель
+        # Суммируем голоса всех аугментаций
         acc_leaf += aug_leaf
         acc_root += aug_root
         acc_stem += aug_stem
@@ -169,13 +170,36 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # === 3. КОНСЕНСУС (ОПРЕДЕЛЯЕМ ФИНАЛЬНУЮ МАСКУ) ===
-    # Обычный режим: 1 голос. DeepScan (7 аугментаций): минимум 3 голоса из 7.
-    threshold = 3 if deep_scan else 1
+    # === 3. WINNER-TAKES-ALL (разрешение конфликтов классов) ===
+    # Стек: (3, H, W) — суммарный score по каждому классу
+    class_scores = np.stack([acc_leaf, acc_root, acc_stem], axis=0)
+    max_score = np.max(class_scores, axis=0)
 
-    leaf_mask = (acc_leaf >= threshold).astype(np.uint8)
-    root_mask = (acc_root >= threshold).astype(np.uint8)
-    stem_mask = (acc_stem >= threshold).astype(np.uint8)
+    # Порог: отсекаем фон (пиксели где ни один класс не набрал достаточно)
+    # Express: 1 прогон, score = mask_prob * conf (0..1), порог 0.1
+    # DeepScan: 8 прогонов, score суммируется, порог 0.3
+    min_score = 0.3 if deep_scan else 0.1
+    background = max_score < min_score
+
+    # Побеждает класс с максимальным суммарным весом — overlap невозможен
+    winner = np.argmax(class_scores, axis=0)
+
+    leaf_mask = ((winner == 0) & ~background).astype(np.uint8)
+    root_mask = ((winner == 1) & ~background).astype(np.uint8)
+    stem_mask = ((winner == 2) & ~background).astype(np.uint8)
+
+    # === 3.1 МОРФОЛОГИЧЕСКАЯ ОЧИСТКА ===
+    kernel_close = np.ones((3, 3), np.uint8)
+    leaf_mask = cv2.morphologyEx(leaf_mask, cv2.MORPH_CLOSE, kernel_close)
+    stem_mask = cv2.morphologyEx(stem_mask, cv2.MORPH_CLOSE, kernel_close)
+    root_mask = cv2.morphologyEx(root_mask, cv2.MORPH_CLOSE, kernel_close)
+
+    # Удаляем мелкий шум из leaf и stem (< 50px), корни не трогаем — они тонкие
+    for mask in [leaf_mask, stem_mask]:
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        for lbl in range(1, num_labels):
+            if stats[lbl, cv2.CC_STAT_AREA] < 50:
+                mask[labels == lbl] = 0
 
     # Извлекаем финальные полигоны для React
     metrics["leaves"], metrics["leaf_count"] = get_polygons_from_mask(leaf_mask, 0)
