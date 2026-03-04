@@ -6,7 +6,7 @@ from api.views import (
     ChatAPIView, PlantAnalysisViewSet, RegisterView,
     UserProfileView, ChatDetailAPIView, LinkTelegramView,
     ChangePasswordView, MockSubscribeView, BotProfileView, BotHistoryView, LogoutView, SetActiveSessionView,
-    AnnotateMessageView, CalibrateView
+    AnnotateMessageView, CalibrateView, MLModelsView
 )
 from django.conf import settings
 from django.conf.urls.static import static
@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/chat/set_active/', SetActiveSessionView.as_view(), name='set_active_session'),
     path('api/chat/message/<int:message_id>/annotate/', AnnotateMessageView.as_view(), name='annotate_message'),
     path('api/calibrate/', CalibrateView.as_view(), name='calibrate'),
+    path('api/ml/models/', MLModelsView.as_view(), name='ml-models'),
 ]
 
 if settings.DEBUG:

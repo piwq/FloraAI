@@ -43,12 +43,13 @@ export const sendFloraChatMessage = (text, metrics, sessionId = null) => {
   });
 };
 
-export const getAnnotatedImage = (messageId, isDeepScan = false, isBaked = false) => {
-    return apiClient.post(`/chat/message/${messageId}/annotate/`, {
-        deep_scan: isDeepScan,
-        bake_overlay: isBaked
-    });
+export const getAnnotatedImage = (messageId, isDeepScan = false, isBaked = false, modelName = null) => {
+    const payload = { deep_scan: isDeepScan, bake_overlay: isBaked };
+    if (modelName) payload.model_name = modelName;
+    return apiClient.post(`/chat/message/${messageId}/annotate/`, payload);
 };
+
+export const getAvailableModels = () => apiClient.get('/ml/models/');
 
 // Калибровка камеры
 export const calibrateCamera = (formData) => apiClient.post('/calibrate/', formData, {
