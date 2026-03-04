@@ -43,7 +43,8 @@ const AuthForm = () => {
     navigate('/app');
     }
     } catch (err) {
-      const errorMsg = err.response?.data?.username?.[0] || err.response?.data?.error || 'Ошибка при регистрации. Возможно, Email уже занят.';
+      const d = err.response?.data;
+      const errorMsg = d?.password?.[0] || d?.username?.[0] || d?.email?.[0] || d?.non_field_errors?.[0] || d?.error || 'Ошибка при регистрации. Возможно, Email уже занят.';
       toast.error(errorMsg);
       setRegistrationStep(1);
     } finally {
@@ -76,12 +77,24 @@ const AuthForm = () => {
     }
 
     if (registrationStep === 1) {
-      if (!isAgreed) {
-        toast.error('Необходимо согласиться с условиями.');
+      if (!formData.name.trim()) {
+        toast.error('Введите ваше имя.');
         return;
       }
       if (!isValidIdentifier(formData.email)) {
         toast.error('Введите корректный Email.');
+        return;
+      }
+      if (formData.password.length < 8) {
+        toast.error('Пароль должен содержать минимум 8 символов.');
+        return;
+      }
+      if (!formData.birthDate) {
+        toast.error('Укажите дату рождения.');
+        return;
+      }
+      if (!isAgreed) {
+        toast.error('Необходимо согласиться с условиями.');
         return;
       }
       setRegistrationStep(2);
