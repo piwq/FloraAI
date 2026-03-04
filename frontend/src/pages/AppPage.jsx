@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast'; 
 import { Header } from '@/components/app/Header';
 import { Sidebar } from '@/components/app/Sidebar';
-import { ChatWindow } from '@/components/app/ChatWindow';
+import ChatWindow from '@/components/app/ChatWindow';
 import { useChat } from '@/hooks/useChat';
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'; 
 import { deleteChatSession } from '@/services/apiClient';
@@ -70,10 +70,12 @@ export const AppPage = () => {
             setActiveChatId(id);
             setIsSidebarOpen(false);
           }}
-        onDeleteChat={handleOpenDeleteModal} 
+          onDeleteChat={handleOpenDeleteModal}
         />
         <main className="flex-1 flex flex-col">
           <ChatWindow
+            key={activeChatId || 'new'}
+            activeChatId={activeChatId}
             chatLogic={chatLogic}
           />
         </main>
@@ -85,7 +87,7 @@ export const AppPage = () => {
           className="fixed inset-0 bg-black/50 z-20 md:hidden"
         />
       )}
-      
+
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}
         onClose={handleCloseDeleteModal}

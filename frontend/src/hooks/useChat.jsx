@@ -6,12 +6,11 @@ import { getChatSessionDetails, uploadPlantPhoto, sendFloraChatMessage } from '@
 export const useChat = (activeChatId, onNewChatCreated) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const queryClient = useQueryClient(); // Для мгновенного обновления сайдбара
+  const queryClient = useQueryClient();
 
-  // Загружаем сообщения, если выбран чат в сайдбаре
   useEffect(() => {
     if (!activeChatId) {
-      setMessages([]); // Начинаем с чистого листа
+      setMessages([]);
       return;
     }
     const loadSessionMessages = async () => {
@@ -28,22 +27,19 @@ export const useChat = (activeChatId, onNewChatCreated) => {
   }, [activeChatId]);
 
   const sendMessage = async (text, file = null) => {
-    // 1. ЛОГИКА ОТПРАВКИ ФОТО (СОЗДАЕТ ЧАТ)
+    // 1. ЛОГИКА ОТПРАВКИ ФОТО (всегда создаёт новый анализ)
     if (file) {
       setIsLoading(true);
       try {
         const response = await uploadPlantPhoto(file);
         const data = response.data;
         if (data.status === 'COMPLETED' && data.session_id) {
-          // Обновляем список чатов в сайдбаре
           queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
-          // Передаем ID нового чата в AppPage -> он сам подтянет историю через useEffect
           if (onNewChatCreated) {
             onNewChatCreated(data.session_id);
           }
         }
       } catch (error) {
-        // --- НОВАЯ ОБРАБОТКА ОШИБКИ ЛИМИТОВ (403) ---
         if (error.response?.status === 403 && error.response?.data?.error === 'limit_reached') {
           toast.error(
             (t) => (
@@ -53,7 +49,7 @@ export const useChat = (activeChatId, onNewChatCreated) => {
                 <button
                   onClick={() => {
                     toast.dismiss(t.id);
-                    window.location.href = '/tariffs'; // Жесткий редирект на тарифы
+                    window.location.href = '/tariffs';
                   }}
                   className="bg-accent-ai text-white rounded-lg px-3 py-2 text-sm font-bold mt-2 hover:bg-opacity-90 transition-colors"
                 >
@@ -61,7 +57,7 @@ export const useChat = (activeChatId, onNewChatCreated) => {
                 </button>
               </div>
             ),
-            { duration: 8000 } // Висит подольше, чтобы юзер успел прочитать
+            { duration: 8000 }
           );
         } else {
           toast.error('Ошибка анализа фото. Попробуйте снова.');

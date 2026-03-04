@@ -1,5 +1,9 @@
 from aiogram.fsm.state import State, StatesGroup
 
-class PlantChatStates(StatesGroup):
-    waiting_for_photo = State()
-    chatting_about_plant = State()
+class ChatStates(StatesGroup):
+    active_chat = State()
+
+class SettingsStates(StatesGroup):
+    wait_conf = State()
+    wait_iou = State()
+    wait_imgsz = State()
