@@ -94,6 +94,7 @@ class MessageAnnotation(models.Model):
 
     leaf_area_cm2 = models.FloatField(default=0.0, blank=True)
     stem_length_mm = models.FloatField(default=0.0, blank=True)
+    is_deep_scan = models.BooleanField(default=False)
 
     class Meta:
         # Сортируем так, чтобы новые разметки всегда были первыми

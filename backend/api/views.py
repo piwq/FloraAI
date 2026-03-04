@@ -290,6 +290,7 @@ class ChatDetailAPIView(APIView):
                         "stems": a.stems,
                         "leaf_area_cm2": a.leaf_area_cm2,
                         "stem_length_mm": a.stem_length_mm,
+                        "is_deep_scan": a.is_deep_scan,
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -440,6 +441,7 @@ class AnnotateMessageView(APIView):
                 stems=stems,
                 leaf_area_cm2=extra_metrics.get('leaf_area_cm2', 0.0),
                 stem_length_mm=extra_metrics.get('stem_length_mm', 0.0),
+                is_deep_scan=deep_scan,
             )
             return Response({
                 "id": new_ann.id,
