@@ -76,7 +76,8 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
                     mm_per_pixel=None, cm2_per_pixel=None,
                     bake_overlay=False, color_leaf='#16A34A', color_root='#9333EA', color_stem='#2563EB'):
     mm_per_pixel = mm_per_pixel or MM_PER_PIXEL
-    cm2_per_pixel = cm2_per_pixel or CM2_PER_PIXEL
+    # Всегда выводим cm2_per_pixel из mm_per_pixel, если не передан явно
+    cm2_per_pixel = cm2_per_pixel or (mm_per_pixel / 10.0) ** 2
     h, w = img.shape[:2]
 
     metrics = {
@@ -405,10 +406,12 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
                 metrics["segments"].append(segment_data)
 
             # === RSA-МЕТРИКИ (Root System Architecture) ===
-            # Кончики корней: endpoint-ветви (branch-type=1) в skan
+            # Кончики корней: только валидные endpoint-ветви (не отфильтрованные как шум)
             b_type_col = 'branch-type' if 'branch-type' in branch_data.columns else 'branch_type'
-            endpoint_branches = branch_data[branch_data[b_type_col] == 1]
-            metrics["root_tip_count"] = len(endpoint_branches)
+            metrics["root_tip_count"] = sum(
+                1 for idx in valid_branch_indices
+                if branch_data.loc[idx, b_type_col] == 1
+            )
 
             # Узлы ветвления (fork): вершины графа со степенью >= 3
             metrics["root_fork_count"] = sum(1 for n in G.nodes() if G.degree(n) >= 3)
@@ -592,16 +595,13 @@ async def annotate_plant(file: UploadFile = File(...),
 
     _, buffer = cv2.imencode('.jpg', annotated_frame)
 
-    return {
-        "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
-        "segments": metrics.get("segments", []),
-        "leaves": metrics.get("leaves", []),
-        "stems": metrics.get("stems", []),
-        "leaf_area_cm2": metrics.get("leaf_area_cm2", 0.0),
-        "stem_length_mm": metrics.get("stem_length_mm", 0.0),
-        "is_deep_scan": deep_scan,
-        "is_baked": bake_overlay
-    }
+    # Возвращаем ВСЕ метрики (включая RSA, фрактальную размерность и т.д.)
+    # чтобы DeepScan-результаты не терялись
+    result = {k: v for k, v in metrics.items() if k != 'annotated_image_base64'}
+    result["annotated_image_base64"] = base64.b64encode(buffer).decode('utf-8')
+    result["is_deep_scan"] = deep_scan
+    result["is_baked"] = bake_overlay
+    return result
 
 
 @app.post("/calibrate")

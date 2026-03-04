@@ -150,7 +150,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
 
         user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
         user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
-        user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
+        user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 1024
 
         # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
         image.seek(0)
