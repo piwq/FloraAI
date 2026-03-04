@@ -15,6 +15,11 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   const [scanStep, setScanStep] = useState(0);
   const [isBaked, setIsBaked] = useState(false);
 
+  // Общий view-стейт (зум, позиция, фильтры) — сохраняется при переключении версий
+  const [canvasView, setCanvasView] = useState({
+    scale: 1, position: { x: 0, y: 0 }, imgFilters: { brightness: 100, contrast: 100, saturate: 100 }
+  });
+
   const [settings, setSettings] = useState({
     yolo_conf: "0.25",
     yolo_iou: "0.7",
@@ -111,11 +116,16 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden">
           {activeAnn && !isAnnotating ? (
             activeAnn.is_baked ? (
-              <div className="relative w-full h-full flex items-center justify-center p-4">
-                <img src={activeAnn.image} alt="Baked annotation" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+              <div className="relative w-full h-full">
+                <InteractivePlantCanvas
+                  imageUrl={activeAnn.image} segments={[]} leaves={[]} stems={[]}
+                  settings={{ show_leaf: false, show_root: false, show_stem: false }} metrics={activeAnn}
+                  externalScale={canvasView.scale} externalPosition={canvasView.position}
+                  externalFilters={canvasView.imgFilters} onViewChange={setCanvasView}
+                />
                 <a
                   href={activeAnn.image} download={`flora_analysis_v${localAnnotations.length - activeIndex}.jpg`}
-                  className="absolute top-4 right-4 h-10 px-4 bg-green-600/90 hover:bg-green-600 text-white rounded-full backdrop-blur-md border border-green-400/30 flex items-center gap-2 shadow-lg transition-all text-xs font-bold"
+                  className="absolute top-4 left-4 z-30 h-10 px-4 bg-green-600/90 hover:bg-green-600 text-white rounded-full backdrop-blur-md border border-green-400/30 flex items-center gap-2 shadow-lg transition-all text-xs font-bold"
                 >
                   <span className="text-base">💾</span>
                   <span>Скачать</span>
@@ -127,6 +137,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                 leaves={activeAnn.leaves || []} stems={activeAnn.stems || []}
                 settings={settings} metrics={activeAnn}
                 onToggleLayers={(on) => setSettings(prev => ({ ...prev, show_leaf: on, show_root: on, show_stem: on }))}
+                externalScale={canvasView.scale} externalPosition={canvasView.position}
+                externalFilters={canvasView.imgFilters} onViewChange={setCanvasView}
               />
             )
           ) : (

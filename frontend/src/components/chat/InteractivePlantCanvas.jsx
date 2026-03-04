@@ -1,19 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = [], settings, metrics, onToggleLayers }) => {
+const InteractivePlantCanvas = ({
+  imageUrl, segments = [], leaves = [], stems = [], settings, metrics, onToggleLayers,
+  externalScale, externalPosition, externalFilters, onViewChange
+}) => {
   const [viewBox, setViewBox] = useState('0 0 1000 1000');
   const [hoveredSegment, setHoveredSegment] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [_scale, _setScale] = useState(1);
+  const [_position, _setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
 
-  const [imgFilters, setImgFilters] = useState({ brightness: 100, contrast: 100, saturate: 100 });
+  const [_imgFilters, _setImgFilters] = useState({ brightness: 100, contrast: 100, saturate: 100 });
   const [showFilters, setShowFilters] = useState(false);
+
+  // Если переданы external-пропсы — используем их, иначе локальные
+  const scale = externalScale ?? _scale;
+  const position = externalPosition ?? _position;
+  const imgFilters = externalFilters ?? _imgFilters;
+
+  const setScale = (v) => {
+    const next = typeof v === 'function' ? v(scale) : v;
+    _setScale(next);
+    if (onViewChange) onViewChange({ scale: next, position, imgFilters });
+  };
+  const setPosition = (v) => {
+    const next = typeof v === 'function' ? v(position) : v;
+    _setPosition(next);
+    if (onViewChange) onViewChange({ scale, position: next, imgFilters });
+  };
+  const setImgFilters = (v) => {
+    const next = typeof v === 'function' ? v(imgFilters) : v;
+    _setImgFilters(next);
+    if (onViewChange) onViewChange({ scale, position, imgFilters: next });
+  };
 
   const overlayEnabled = settings?.show_leaf !== false || settings?.show_root !== false || settings?.show_stem !== false;
 
@@ -116,7 +140,11 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
-      onDoubleClick={() => { setScale(1); setPosition({x: 0, y: 0}); setImgFilters({ brightness: 100, contrast: 100, saturate: 100 }); }}
+      onDoubleClick={() => {
+        const reset = { scale: 1, position: { x: 0, y: 0 }, imgFilters: { brightness: 100, contrast: 100, saturate: 100 } };
+        _setScale(1); _setPosition({ x: 0, y: 0 }); _setImgFilters({ brightness: 100, contrast: 100, saturate: 100 });
+        if (onViewChange) onViewChange(reset);
+      }}
     >
       <div className="filter-panel absolute top-4 right-4 z-30 flex flex-col items-end gap-2 pointer-events-auto">
         <div className="flex gap-2">
