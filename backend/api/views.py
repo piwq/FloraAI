@@ -291,6 +291,7 @@ class ChatDetailAPIView(APIView):
                         "leaf_area_cm2": a.leaf_area_cm2,
                         "stem_length_mm": a.stem_length_mm,
                         "is_deep_scan": a.is_deep_scan,
+                        "is_baked": a.is_baked,
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -406,10 +407,14 @@ class AnnotateMessageView(APIView):
 
         user = request.user
 
-        # Получаем флаг DeepScan из запроса React
+        # Получаем флаги из запроса React
         deep_scan = request.data.get('deep_scan', False)
         if isinstance(deep_scan, str):
             deep_scan = deep_scan.lower() == 'true'
+
+        bake_overlay = request.data.get('bake_overlay', False)
+        if isinstance(bake_overlay, str):
+            bake_overlay = bake_overlay.lower() == 'true'
 
         user_conf = getattr(user, 'yolo_conf', None)
         user_conf = float(user_conf) if user_conf is not None else 0.1
@@ -426,9 +431,9 @@ class AnnotateMessageView(APIView):
 
         message.image.seek(0)
 
-        # ПЕРЕДАЕМ ФЛАГ deep_scan В ML-КЛИЕНТ
+        # ПЕРЕДАЕМ ФЛАГИ deep_scan И bake_overlay В ML-КЛИЕНТ
         annotated_file, segments, leaves, stems, extra_metrics = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, user=user
+            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, bake_overlay, user=user
         )
 
         if annotated_file:
@@ -442,6 +447,7 @@ class AnnotateMessageView(APIView):
                 leaf_area_cm2=extra_metrics.get('leaf_area_cm2', 0.0),
                 stem_length_mm=extra_metrics.get('stem_length_mm', 0.0),
                 is_deep_scan=deep_scan,
+                is_baked=bake_overlay,
             )
             return Response({
                 "id": new_ann.id,
@@ -452,7 +458,8 @@ class AnnotateMessageView(APIView):
                 "stems": new_ann.stems,
                 "leaf_area_cm2": extra_metrics.get('leaf_area_cm2', 0.0),
                 "stem_length_mm": extra_metrics.get('stem_length_mm', 0.0),
-                "is_deep_scan": deep_scan
+                "is_deep_scan": deep_scan,
+                "is_baked": bake_overlay
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)

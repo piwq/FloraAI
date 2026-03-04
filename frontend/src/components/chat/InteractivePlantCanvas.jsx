@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = [], settings, metrics }) => {
+const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = [], settings, metrics, onToggleLayers }) => {
   const [viewBox, setViewBox] = useState('0 0 1000 1000');
   const [hoveredSegment, setHoveredSegment] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -14,6 +14,8 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
 
   const [imgFilters, setImgFilters] = useState({ brightness: 100, contrast: 100, saturate: 100 });
   const [showFilters, setShowFilters] = useState(false);
+
+  const overlayEnabled = settings?.show_leaf !== false || settings?.show_root !== false || settings?.show_stem !== false;
 
   useEffect(() => {
     const handleKeyDown = (e) => { if (e.key === 'Control') setIsCtrlPressed(true); };
@@ -67,7 +69,7 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
   };
 
   let inspectorData = null;
-  if (hoveredSegment) {
+  if (hoveredSegment && overlayEnabled) {
     if (hoveredSegment.category === 'root') {
       if (isCtrlPressed) {
         const groupSegments = segments.filter(s => s.type === hoveredSegment.type);
@@ -117,13 +119,23 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
       onDoubleClick={() => { setScale(1); setPosition({x: 0, y: 0}); setImgFilters({ brightness: 100, contrast: 100, saturate: 100 }); }}
     >
       <div className="filter-panel absolute top-4 right-4 z-30 flex flex-col items-end gap-2 pointer-events-auto">
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="w-10 h-10 bg-black/70 hover:bg-black/90 text-white rounded-full backdrop-blur-md border border-white/10 flex items-center justify-center shadow-lg transition-all text-lg"
-          title="Настройка изображения"
-        >
-          {showFilters ? '✕' : '🎛'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onToggleLayers && onToggleLayers(!overlayEnabled)}
+            className={`h-10 px-3 rounded-full backdrop-blur-md border flex items-center gap-2 shadow-lg transition-all text-xs font-bold ${overlayEnabled ? 'bg-green-600/80 hover:bg-green-600 border-green-400/30 text-white' : 'bg-black/70 hover:bg-black/90 border-white/10 text-gray-400'}`}
+            title={overlayEnabled ? 'Выключить интерактивную разметку' : 'Включить интерактивную разметку'}
+          >
+            <span className="text-base">{overlayEnabled ? '🧬' : '🖼'}</span>
+            <span>{overlayEnabled ? 'Разметка' : 'Фото'}</span>
+          </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="w-10 h-10 bg-black/70 hover:bg-black/90 text-white rounded-full backdrop-blur-md border border-white/10 flex items-center justify-center shadow-lg transition-all text-lg"
+            title="Настройка изображения"
+          >
+            {showFilters ? '✕' : '🎛'}
+          </button>
+        </div>
 
         {showFilters && (
           <div className="bg-black/85 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white text-xs w-56 shadow-2xl animate-fade-in-down origin-top-right">
@@ -147,75 +159,76 @@ const InteractivePlantCanvas = ({ imageUrl, segments = [], leaves = [], stems = 
           onDragStart={(e) => e.preventDefault()}
         />
 
-        <div className="absolute inset-0 bg-black transition-opacity duration-300 pointer-events-none rounded-lg" style={{ opacity: hoveredSegment ? 0.75 : 0 }} />
+        {overlayEnabled && (
+          <>
+            <div className="absolute inset-0 bg-black transition-opacity duration-300 pointer-events-none rounded-lg" style={{ opacity: hoveredSegment ? 0.75 : 0 }} />
 
-        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox={viewBox} preserveAspectRatio="none">
-          {settings?.show_leaf !== false && leaves.map((leaf) => {
-            const pointsStr = leaf.path.map(p => `${p[0]},${p[1]}`).join(' ');
-            const leafColor = settings?.color_leaf || '#16A34A';
-            const isHovered = hoveredSegment?.id === leaf.id && hoveredSegment?.category === 'leaf';
-            const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : 1;
+            <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox={viewBox} preserveAspectRatio="none">
+              {settings?.show_leaf !== false && leaves.map((leaf) => {
+                const pointsStr = leaf.path.map(p => `${p[0]},${p[1]}`).join(' ');
+                const leafColor = settings?.color_leaf || '#16A34A';
+                const isHovered = hoveredSegment?.id === leaf.id && hoveredSegment?.category === 'leaf';
+                const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : 1;
 
-            return (
-              <polygon
-                key={`leaf-${leaf.id}`} points={pointsStr} fill={hexToRgba(leafColor, isHovered ? 0.6 : 0.3)}
-                stroke={isHovered ? '#4ade80' : leafColor} strokeWidth={isHovered ? 4 : 2} style={{ opacity }}
-                className="transition-all duration-300 pointer-events-auto cursor-help"
-                onMouseEnter={() => setHoveredSegment({ ...leaf, category: 'leaf' })} onMouseLeave={() => setHoveredSegment(null)}
-              />
-            );
-          })}
+                return (
+                  <polygon
+                    key={`leaf-${leaf.id}`} points={pointsStr} fill={hexToRgba(leafColor, isHovered ? 0.6 : 0.3)}
+                    stroke={isHovered ? '#4ade80' : leafColor} strokeWidth={isHovered ? 4 : 2} style={{ opacity }}
+                    className="transition-all duration-300 pointer-events-auto cursor-help"
+                    onMouseEnter={() => setHoveredSegment({ ...leaf, category: 'leaf' })} onMouseLeave={() => setHoveredSegment(null)}
+                  />
+                );
+              })}
 
-          {settings?.show_stem !== false && stems.map((stem) => {
-            const pointsStr = stem.path.map(p => `${p[0]},${p[1]}`).join(' ');
-            const stemColor = settings?.color_stem || '#2563EB';
-            const isHovered = hoveredSegment?.id === stem.id && hoveredSegment?.category === 'stem';
-            const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : 1;
+              {settings?.show_stem !== false && stems.map((stem) => {
+                const pointsStr = stem.path.map(p => `${p[0]},${p[1]}`).join(' ');
+                const stemColor = settings?.color_stem || '#2563EB';
+                const isHovered = hoveredSegment?.id === stem.id && hoveredSegment?.category === 'stem';
+                const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : 1;
 
-            return (
-              <polygon
-                key={`stem-${stem.id}`} points={pointsStr} fill={hexToRgba(stemColor, isHovered ? 0.7 : 0.4)}
-                stroke={isHovered ? '#60a5fa' : stemColor} strokeWidth={isHovered ? 5 : 3} style={{ opacity }}
-                className="transition-all duration-300 pointer-events-auto cursor-help"
-                onMouseEnter={() => setHoveredSegment({ ...stem, category: 'stem' })} onMouseLeave={() => setHoveredSegment(null)}
-              />
-            );
-          })}
+                return (
+                  <polygon
+                    key={`stem-${stem.id}`} points={pointsStr} fill={hexToRgba(stemColor, isHovered ? 0.7 : 0.4)}
+                    stroke={isHovered ? '#60a5fa' : stemColor} strokeWidth={isHovered ? 5 : 3} style={{ opacity }}
+                    className="transition-all duration-300 pointer-events-auto cursor-help"
+                    onMouseEnter={() => setHoveredSegment({ ...stem, category: 'stem' })} onMouseLeave={() => setHoveredSegment(null)}
+                  />
+                );
+              })}
 
-          {settings?.show_root !== false && segments.map((seg) => {
-            const pointsStr = seg.path.map(p => `${p[0]},${p[1]}`).join(' ');
-            const isPrimary = seg.type.includes("Первичный");
-            const baseColor = isPrimary ? (settings?.color_root || '#9333EA') : '#06b6d4';
+              {settings?.show_root !== false && segments.map((seg) => {
+                const pointsStr = seg.path.map(p => `${p[0]},${p[1]}`).join(' ');
+                const isPrimary = seg.type.includes("Первичный");
+                const baseColor = isPrimary ? (settings?.color_root || '#9333EA') : '#06b6d4';
 
-            const isHovered = hoveredSegment && hoveredSegment.category === 'root' && ((!isCtrlPressed && hoveredSegment.id === seg.id) || (isCtrlPressed && hoveredSegment.type === seg.type));
+                const isHovered = hoveredSegment && hoveredSegment.category === 'root' && ((!isCtrlPressed && hoveredSegment.id === seg.id) || (isCtrlPressed && hoveredSegment.type === seg.type));
 
-            // 🔥 HEATMAP ЛОГИКА: Вычисляем прозрачность на основе толщины (от 0.3 до 1.0)
-            const thicknessRatio = seg.thickness_mm / maxThickness;
-            const heatAlpha = 0.3 + (0.7 * thicknessRatio);
+                const thicknessRatio = seg.thickness_mm / maxThickness;
+                const heatAlpha = 0.3 + (0.7 * thicknessRatio);
+                const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : heatAlpha;
 
-            // Если кто-то наведен — тускнеем (0.1) или горим (1). Если никто не наведен — работает HEATMAP
-            const opacity = hoveredSegment ? (isHovered ? 1 : 0.1) : heatAlpha;
-
-            return (
-              <g key={`group-${seg.id}`}>
-                <polyline
-                  points={pointsStr} fill="none"
-                  stroke={isHovered ? '#fbbf24' : baseColor}
-                  strokeWidth={isHovered ? (isCtrlPressed ? 6 : 8) : (isPrimary ? 5 : 3)}
-                  className="pointer-events-none transition-all duration-150"
-                  strokeLinecap="round" strokeLinejoin="round"
-                  style={{ opacity }}
-                />
-                <polyline
-                  points={pointsStr} fill="none" stroke="transparent" strokeWidth={30 / scale}
-                  className="pointer-events-auto cursor-help"
-                  onMouseEnter={() => setHoveredSegment({ ...seg, category: 'root' })}
-                  onMouseLeave={() => setHoveredSegment(null)}
-                />
-              </g>
-            );
-          })}
-        </svg>
+                return (
+                  <g key={`group-${seg.id}`}>
+                    <polyline
+                      points={pointsStr} fill="none"
+                      stroke={isHovered ? '#fbbf24' : baseColor}
+                      strokeWidth={isHovered ? (isCtrlPressed ? 6 : 8) : (isPrimary ? 5 : 3)}
+                      className="pointer-events-none transition-all duration-150"
+                      strokeLinecap="round" strokeLinejoin="round"
+                      style={{ opacity }}
+                    />
+                    <polyline
+                      points={pointsStr} fill="none" stroke="transparent" strokeWidth={30 / scale}
+                      className="pointer-events-auto cursor-help"
+                      onMouseEnter={() => setHoveredSegment({ ...seg, category: 'root' })}
+                      onMouseLeave={() => setHoveredSegment(null)}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+          </>
+        )}
       </div>
 
       <div className="smart-panel absolute bottom-4 left-4 z-20 pointer-events-auto transition-all duration-300">

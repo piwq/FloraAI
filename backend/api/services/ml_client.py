@@ -49,7 +49,7 @@ def analyze_plant_image(image_file, conf, iou, imgsz, user=None):
     return ml_data, annotated_image_content
 
 
-def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False, user=None):
+def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False, bake_overlay=False, user=None):
     try:
         filename = os.path.basename(image_file.name)
         file_content = image_file.read()
@@ -58,7 +58,8 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
         data_payload = {
             'conf': conf, 'iou': iou, 'imgsz': imgsz,
             'color_leaf': color_leaf, 'color_root': color_root, 'color_stem': color_stem,
-            'deep_scan': 'true' if deep_scan else 'false'
+            'deep_scan': 'true' if deep_scan else 'false',
+            'bake_overlay': 'true' if bake_overlay else 'false',
         }
         data_payload.update(_calib_payload(user))
 
@@ -73,6 +74,7 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
             extra_metrics = {
                 'leaf_area_cm2': resp_json.get('leaf_area_cm2', 0.0),
                 'stem_length_mm': resp_json.get('stem_length_mm', 0.0),
+                'is_baked': resp_json.get('is_baked', False),
             }
             if img_b64:
                 image_data = base64.b64decode(img_b64)

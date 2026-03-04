@@ -73,7 +73,8 @@ def get_polygons_from_mask(mask, offset_id=0):
 
 
 def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=False,
-                    mm_per_pixel=None, cm2_per_pixel=None):
+                    mm_per_pixel=None, cm2_per_pixel=None,
+                    bake_overlay=False, color_leaf='#16A34A', color_root='#9333EA', color_stem='#2563EB'):
     mm_per_pixel = mm_per_pixel or MM_PER_PIXEL
     cm2_per_pixel = cm2_per_pixel or CM2_PER_PIXEL
     h, w = img.shape[:2]
@@ -452,7 +453,42 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
         ))
 
     if draw_annotation:
-        return metrics, img.copy()
+        canvas = img.copy()
+
+        if bake_overlay:
+            # --- РИСУЕМ МАСКИ ПРЯМО НА ФОТО (baked overlay) ---
+            def hex_to_bgr(hex_color):
+                hex_color = hex_color.lstrip('#')
+                r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                return (b, g, r)
+
+            overlay = canvas.copy()
+            alpha = 0.35  # прозрачность заливки
+
+            # Листья
+            if np.any(leaf_mask):
+                bgr = hex_to_bgr(color_leaf)
+                overlay[leaf_mask > 0] = bgr
+                contours_l, _ = cv2.findContours(leaf_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cv2.drawContours(canvas, contours_l, -1, bgr, 2)
+
+            # Стебли
+            if np.any(stem_mask):
+                bgr = hex_to_bgr(color_stem)
+                overlay[stem_mask > 0] = bgr
+                contours_s, _ = cv2.findContours(stem_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cv2.drawContours(canvas, contours_s, -1, bgr, 2)
+
+            # Корни
+            if np.any(root_mask):
+                bgr = hex_to_bgr(color_root)
+                overlay[root_mask > 0] = bgr
+                contours_r, _ = cv2.findContours(root_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cv2.drawContours(canvas, contours_r, -1, bgr, 2)
+
+            cv2.addWeighted(overlay, alpha, canvas, 1 - alpha, 0, canvas)
+
+        return metrics, canvas
 
     return metrics, None
 
@@ -506,6 +542,10 @@ async def predict_plant(file: UploadFile = File(...),
 async def annotate_plant(file: UploadFile = File(...),
                          conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
                          deep_scan: bool = Form(False),
+                         bake_overlay: bool = Form(False),
+                         color_leaf: str = Form('#16A34A'),
+                         color_root: str = Form('#9333EA'),
+                         color_stem: str = Form('#2563EB'),
                          camera_matrix_json: Optional[str] = Form(None),
                          dist_coeffs_json: Optional[str] = Form(None),
                          user_mm_per_pixel: Optional[float] = Form(None),
@@ -519,7 +559,10 @@ async def annotate_plant(file: UploadFile = File(...),
     if cam_mtx is not None and d_coeffs is not None:
         img = cv2.undistort(img, cam_mtx, d_coeffs, None, cam_mtx)
 
-    metrics, annotated_frame = analyze_biomass(img, conf, iou, imgsz, True, deep_scan, mpp, cpp)
+    metrics, annotated_frame = analyze_biomass(
+        img, conf, iou, imgsz, True, deep_scan, mpp, cpp,
+        bake_overlay=bake_overlay, color_leaf=color_leaf, color_root=color_root, color_stem=color_stem
+    )
 
     if annotated_frame is None: return {"annotated_image_base64": None}
 
@@ -532,7 +575,8 @@ async def annotate_plant(file: UploadFile = File(...),
         "stems": metrics.get("stems", []),
         "leaf_area_cm2": metrics.get("leaf_area_cm2", 0.0),
         "stem_length_mm": metrics.get("stem_length_mm", 0.0),
-        "is_deep_scan": deep_scan
+        "is_deep_scan": deep_scan,
+        "is_baked": bake_overlay
     }
 
 

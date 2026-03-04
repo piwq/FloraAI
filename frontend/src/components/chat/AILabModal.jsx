@@ -13,6 +13,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   // --- DEEP SCAN СТЕЙТЫ ---
   const [isDeepScan, setIsDeepScan] = useState(false);
   const [scanStep, setScanStep] = useState(0);
+  const [isBaked, setIsBaked] = useState(false);
 
   const [settings, setSettings] = useState({
     yolo_conf: "0.25",
@@ -70,15 +71,16 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       const payload = { ...settings, yolo_conf: parseFloat(settings.yolo_conf), yolo_iou: parseFloat(settings.yolo_iou), yolo_imgsz: parseInt(settings.yolo_imgsz, 10) };
       await updateUserProfile(payload);
 
-      // Передаем флаг isDeepScan в API
-      const response = await getAnnotatedImage(messageId, isDeepScan);
+      // Передаем флаги isDeepScan и isBaked в API
+      const response = await getAnnotatedImage(messageId, isDeepScan, isBaked);
 
       const newAnn = {
         id: response.data.id, image: response.data.annotated_image_url,
         conf: response.data.conf, iou: response.data.iou, imgsz: response.data.imgsz,
         segments: response.data.segments, leaves: response.data.leaves, stems: response.data.stems,
         leaf_area_cm2: response.data.leaf_area_cm2, stem_length_mm: response.data.stem_length_mm,
-        is_deep_scan: response.data.is_deep_scan
+        is_deep_scan: response.data.is_deep_scan,
+        is_baked: response.data.is_baked
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
@@ -108,11 +110,25 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         {/* ЛЕВАЯ ЧАСТЬ (КАНВАС) */}
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden">
           {activeAnn && !isAnnotating ? (
-            <InteractivePlantCanvas
-              imageUrl={activeAnn.image} segments={activeAnn.segments || []}
-              leaves={activeAnn.leaves || []} stems={activeAnn.stems || []}
-              settings={settings} metrics={activeAnn}
-            />
+            activeAnn.is_baked ? (
+              <div className="relative w-full h-full flex items-center justify-center p-4">
+                <img src={activeAnn.image} alt="Baked annotation" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+                <a
+                  href={activeAnn.image} download={`flora_analysis_v${localAnnotations.length - activeIndex}.jpg`}
+                  className="absolute top-4 right-4 h-10 px-4 bg-green-600/90 hover:bg-green-600 text-white rounded-full backdrop-blur-md border border-green-400/30 flex items-center gap-2 shadow-lg transition-all text-xs font-bold"
+                >
+                  <span className="text-base">💾</span>
+                  <span>Скачать</span>
+                </a>
+              </div>
+            ) : (
+              <InteractivePlantCanvas
+                imageUrl={activeAnn.image} segments={activeAnn.segments || []}
+                leaves={activeAnn.leaves || []} stems={activeAnn.stems || []}
+                settings={settings} metrics={activeAnn}
+                onToggleLayers={(on) => setSettings(prev => ({ ...prev, show_leaf: on, show_root: on, show_stem: on }))}
+              />
+            )
           ) : (
             <div className="relative w-full h-full flex items-center justify-center p-8">
               <img src={initialImage} alt="Original" className={`max-w-full max-h-full object-contain rounded-lg ${isAnnotating ? 'opacity-20 blur-sm' : 'opacity-80'}`} />
@@ -169,7 +185,10 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                       <div className="flex flex-col flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold text-gray-800 text-sm">Версия v{localAnnotations.length - idx}</span>
-                          {ann.is_deep_scan && <span className="bg-purple-100 text-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">DeepScan</span>}
+                          <div className="flex gap-1">
+                            {ann.is_deep_scan && <span className="bg-purple-100 text-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">DeepScan</span>}
+                            {ann.is_baked && <span className="bg-amber-100 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Baked</span>}
+                          </div>
                         </div>
                         <div className="flex gap-2 text-[10px] text-gray-500 uppercase font-bold">
                           <span className="bg-white border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">Conf: {ann.conf}</span>
@@ -281,8 +300,29 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                   )}
                 </div>
 
+                {/* РЕЖИМ РИСОВКИ */}
+                <div
+                  onClick={() => setIsBaked(!isBaked)}
+                  className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${isBaked ? 'border-amber-400 bg-amber-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{isBaked ? '🖼' : '🧬'}</span>
+                    <div>
+                      <div className={`font-bold text-sm ${isBaked ? 'text-amber-800' : 'text-gray-800'}`}>
+                        {isBaked ? 'Встроенная разметка' : 'Интерактивная разметка'}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        {isBaked ? 'Маски нарисованы на фото — можно скачать' : 'SVG-полигоны с hover-эффектами'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`w-10 h-6 rounded-full relative transition-colors ${isBaked ? 'bg-amber-400' : 'bg-gray-300'}`}>
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${isBaked ? 'left-5' : 'left-1'}`} />
+                  </div>
+                </div>
+
                 {/* ВИЗУАЛИЗАЦИЯ */}
-                <div>
+                <div className={isBaked ? 'opacity-40 pointer-events-none' : ''}>
                   <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 block flex items-center gap-2">
                     🎨 Палитра слоев
                   </label>
