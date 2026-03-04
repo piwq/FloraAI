@@ -26,18 +26,27 @@ export const useChat = (activeChatId, onNewChatCreated) => {
     loadSessionMessages();
   }, [activeChatId]);
 
-  const sendMessage = async (text, file = null) => {
-    // 1. ЛОГИКА ОТПРАВКИ ФОТО (всегда создаёт новый анализ)
-    if (file) {
+  const sendMessage = async (text, files = null) => {
+    // 1. ЛОГИКА ОТПРАВКИ ФОТО (каждый файл создаёт отдельный анализ)
+    if (files && files.length > 0) {
       setIsLoading(true);
+      let lastSessionId = null;
+      let uploaded = 0;
       try {
-        const response = await uploadPlantPhoto(file);
-        const data = response.data;
-        if (data.status === 'COMPLETED' && data.session_id) {
-          queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
-          if (onNewChatCreated) {
-            onNewChatCreated(data.session_id);
+        for (const file of files) {
+          const response = await uploadPlantPhoto(file);
+          const data = response.data;
+          uploaded++;
+          if (data.status === 'COMPLETED' && data.session_id) {
+            lastSessionId = data.session_id;
           }
+          if (files.length > 1) {
+            toast.success(`Обработано ${uploaded}/${files.length}: ${file.name}`, { duration: 2000 });
+          }
+        }
+        queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+        if (lastSessionId && onNewChatCreated) {
+          onNewChatCreated(lastSessionId);
         }
       } catch (error) {
         if (error.response?.status === 403 && error.response?.data?.error === 'limit_reached') {
@@ -60,7 +69,14 @@ export const useChat = (activeChatId, onNewChatCreated) => {
             { duration: 8000 }
           );
         } else {
-          toast.error('Ошибка анализа фото. Попробуйте снова.');
+          toast.error(`Ошибка анализа фото. Обработано ${uploaded}/${files.length}.`);
+        }
+        // Обновляем сайдбар для уже загруженных
+        if (uploaded > 0) {
+          queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+          if (lastSessionId && onNewChatCreated) {
+            onNewChatCreated(lastSessionId);
+          }
         }
       } finally {
         setIsLoading(false);
