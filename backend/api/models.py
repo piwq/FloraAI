@@ -92,6 +92,9 @@ class MessageAnnotation(models.Model):
     leaves = models.JSONField(default=list, blank=True)
     stems = models.JSONField(default=list, blank=True)
 
+    leaf_area_cm2 = models.FloatField(default=0.0, blank=True)
+    stem_length_mm = models.FloatField(default=0.0, blank=True)
+
     class Meta:
         # Сортируем так, чтобы новые разметки всегда были первыми
         ordering = ['-created_at']

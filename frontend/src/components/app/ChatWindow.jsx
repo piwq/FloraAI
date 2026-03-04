@@ -54,6 +54,15 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
 
   const imageMsg = messages.find(m => m.image);
 
+  // Обновляем аннотации в messages state, чтобы при переоткрытии модалки история сохранялась
+  const handleAnnotationCreated = (messageId, newAnnotation) => {
+    setMessages(prev => prev.map(msg =>
+      msg.id === messageId
+        ? { ...msg, annotations: [newAnnotation, ...(msg.annotations || []).filter(a => a.id !== newAnnotation.id)] }
+        : msg
+    ));
+  };
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 rounded-lg shadow-sm">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -88,6 +97,7 @@ const ChatWindow = ({ activeChatId, chatLogic }) => {
           messageId={imageMsg.id}
           initialImage={imageMsg.image}
           initialAnnotations={imageMsg.annotations || []}
+          onAnnotationCreated={handleAnnotationCreated}
         />
       )}
     </div>

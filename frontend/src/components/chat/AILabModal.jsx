@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getAnnotatedImage, getUserProfile, updateUserProfile } from '../../services/apiClient';
 import InteractivePlantCanvas from './InteractivePlantCanvas';
 
-const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [] }) => {
+const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [], onAnnotationCreated }) => {
   if (!isOpen) return null;
 
   const [localAnnotations, setLocalAnnotations] = useState(initialAnnotations);
@@ -82,6 +82,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
+      // Синхронизируем с родительским состоянием, чтобы при переоткрытии модалки история сохранялась
+      if (onAnnotationCreated) onAnnotationCreated(messageId, newAnn);
     } catch (err) {
       console.error(err);
     } finally {

@@ -287,7 +287,9 @@ class ChatDetailAPIView(APIView):
                         "imgsz": a.imgsz,
                         "segments": a.segments,
                         "leaves": a.leaves,
-                        "stems": a.stems
+                        "stems": a.stems,
+                        "leaf_area_cm2": a.leaf_area_cm2,
+                        "stem_length_mm": a.stem_length_mm,
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -435,7 +437,9 @@ class AnnotateMessageView(APIView):
                 color_leaf=c_leaf, color_root=c_root, color_stem=c_stem,
                 segments=segments,
                 leaves=leaves,
-                stems=stems
+                stems=stems,
+                leaf_area_cm2=extra_metrics.get('leaf_area_cm2', 0.0),
+                stem_length_mm=extra_metrics.get('stem_length_mm', 0.0),
             )
             return Response({
                 "id": new_ann.id,
