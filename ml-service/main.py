@@ -133,6 +133,11 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
     acc_root = np.zeros((h, w), dtype=np.float32)
     acc_stem = np.zeros((h, w), dtype=np.float32)
 
+    # Счётчики голосов: сколько проходов обнаружили пиксель (для edge recovery)
+    vote_leaf = np.zeros((h, w), dtype=np.int32)
+    vote_root = np.zeros((h, w), dtype=np.int32)
+    vote_stem = np.zeros((h, w), dtype=np.int32)
+
     # === 2. ПРОГОН НЕЙРОСЕТИ И SOFT VOTING ===
     for aug_img in images_to_process:
         with torch.no_grad():
@@ -167,6 +172,11 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
         acc_root += aug_root
         acc_stem += aug_stem
 
+        # Считаем в скольких проходах пиксель был обнаружён (порог 0.05 на проход)
+        vote_leaf += (aug_leaf > 0.05).astype(np.int32)
+        vote_root += (aug_root > 0.05).astype(np.int32)
+        vote_stem += (aug_stem > 0.05).astype(np.int32)
+
         del res
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -194,6 +204,20 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
     leaf_mask = cv2.morphologyEx(leaf_mask, cv2.MORPH_CLOSE, kernel_close)
     stem_mask = cv2.morphologyEx(stem_mask, cv2.MORPH_CLOSE, kernel_close)
     root_mask = cv2.morphologyEx(root_mask, cv2.MORPH_CLOSE, kernel_close)
+
+    # === 3.2 EDGE RECOVERY (DeepScan) ===
+    # Soft-voting усредняет границы масок → тонкие структуры теряют ширину.
+    # Восстанавливаем краевые пиксели, обнаруженные в ≥2 проходах,
+    # если winner-takes-all относит их к тому же классу.
+    if deep_scan:
+        min_votes = 2
+        leaf_mask = np.maximum(leaf_mask, ((winner == 0) & (vote_leaf >= min_votes)).astype(np.uint8))
+        root_mask = np.maximum(root_mask, ((winner == 1) & (vote_root >= min_votes)).astype(np.uint8))
+        stem_mask = np.maximum(stem_mask, ((winner == 2) & (vote_stem >= min_votes)).astype(np.uint8))
+        # Повторная очистка после восстановления
+        leaf_mask = cv2.morphologyEx(leaf_mask, cv2.MORPH_CLOSE, kernel_close)
+        root_mask = cv2.morphologyEx(root_mask, cv2.MORPH_CLOSE, kernel_close)
+        stem_mask = cv2.morphologyEx(stem_mask, cv2.MORPH_CLOSE, kernel_close)
 
     # Удаляем мелкий шум из leaf и stem (< 50px), корни не трогаем — они тонкие
     for mask in [leaf_mask, stem_mask]:

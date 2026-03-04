@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from .models import PlantAnalysis, ChatMessage, ChatSession, MessageAnnotation
+from .models import PlantAnalysis, ChatMessage, ChatSession, MessageAnnotation, SiteSettings
 from .serializers import PlantAnalysisSerializer, UserSerializer, RegisterSerializer
 import os
 from channels.layers import get_channel_layer
@@ -144,7 +144,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
             return Response({"error": "Unauthorized"}, status=401)
 
         is_linked = bool(user.email)
-        if is_linked and not user.is_premium:
+        if SiteSettings.get().require_subscription and is_linked and not user.is_premium:
             if PlantAnalysis.objects.filter(user=user).count() >= 3:
                 return Response({"error": "limit_reached"}, status=403)
 
@@ -324,7 +324,7 @@ class BotProfileView(APIView):
             "is_linked": True,
             "email": user.email,
             "username": user.telegram_username,
-            "subscription": "PREMIUM" if user.is_premium else "FREE",
+            "subscription": "PREMIUM" if (not SiteSettings.get().require_subscription or user.is_premium) else "FREE",
             "analyses_count": analyses_count,
             "yolo_conf": user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25,
             "yolo_iou": user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7,

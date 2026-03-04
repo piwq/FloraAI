@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import PlantAnalysis
+from .models import PlantAnalysis, SiteSettings
 
 User = get_user_model()
 
@@ -17,12 +17,13 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'username', 'email', 'calib_mm_per_pixel', 'calib_cm2_per_pixel', 'calib_reprojection_error')
 
     def get_subscriptionStatus(self, obj):
+        if not SiteSettings.get().require_subscription:
+            return 'PREMIUM'
         return 'PREMIUM' if obj.is_premium else 'BASIC'
 
     def get_remainingInterpretations(self, obj):
-        if obj.is_premium:
+        if not SiteSettings.get().require_subscription or obj.is_premium:
             return 'Безлимит'
-        # Считаем, сколько фото юзер уже загрузил
         count = PlantAnalysis.objects.filter(user=obj).count()
         return max(0, 3 - count)
 

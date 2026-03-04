@@ -103,3 +103,28 @@ class MessageAnnotation(models.Model):
 
     def __str__(self):
         return f"Annotation for Msg #{self.message_id} (conf={self.conf}, iou={self.iou})"
+
+
+class SiteSettings(models.Model):
+    """Глобальные настройки сайта (singleton — всегда 1 запись)."""
+    require_subscription = models.BooleanField(
+        default=True,
+        verbose_name="Требовать подписку",
+        help_text="Выкл → все пользователи получают Premium-доступ без ограничений"
+    )
+
+    class Meta:
+        verbose_name = "Настройки сайта"
+        verbose_name_plural = "Настройки сайта"
+
+    def __str__(self):
+        return "Настройки сайта"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
