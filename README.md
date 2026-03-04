@@ -1,12 +1,12 @@
 # FloraAI — ИИ-система анализа морфологии растений
 
 ![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
-![YOLOv8](https://img.shields.io/badge/YOLOv8-Instance_Segmentation-00FFFF?logo=yolo)
+![YOLO11](https://img.shields.io/badge/YOLO11x-Instance_Segmentation-00FFFF?logo=yolo)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)
 ![Django](https://img.shields.io/badge/Django-6-092E20?logo=django)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2CA5E0?logo=docker)
 
-**FloraAI** — система компьютерного зрения для сегментации и количественного анализа морфологии растений (листья, стебли, корни). Обученная модель YOLOv8 выполняет instance-сегментацию, после чего пайплайн рассчитывает 30+ фито-метрик, включая площадь листьев, длину корней, объём биомассы, фрактальную размерность корневой системы и вегетативные индексы здоровья.
+**FloraAI** — система компьютерного зрения для сегментации и количественного анализа морфологии растений (листья, стебли, корни). Обученная модель YOLO11x-seg выполняет instance-сегментацию, после чего пайплайн рассчитывает 30+ фито-метрик, включая площадь листьев, длину корней, объём биомассы, фрактальную размерность корневой системы и вегетативные индексы здоровья.
 
 Доступен в трёх форматах: **CLI-скрипт** (пакетная обработка), **веб-приложение** (React + Django) и **Telegram-бот**.
 
@@ -28,7 +28,7 @@
 
 ## Возможности
 
-- **Instance-сегментация** листьев, стеблей и корней (YOLOv8)
+- **Instance-сегментация** листьев, стеблей и корней (YOLO11)
 - **DeepScan** — 8-кратный TTA (Test-Time Augmentation) ансамблинг с soft-voting и edge recovery для повышенной точности
 - **30+ морфологических метрик**: площадь, длина, объём, толщина, конусность, фрактальная размерность, RSA-метрики
 - **Анализ корневой системы** через скелетизацию и теорию графов (NetworkX + skan)
@@ -46,7 +46,7 @@
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────────┐
 │  Frontend   │────▶│   Backend    │────▶│   ML Service     │
-│  React+Vite │     │  Django+DRF  │     │  FastAPI+YOLOv8  │
+│  React+Vite │     │  Django+DRF  │     │  FastAPI+YOLO11  │
 │  port 80    │     │  port 8000   │     │  port 8001 (GPU) │
 └─────────────┘     └──────┬───────┘     └──────────────────┘
                            │
@@ -57,7 +57,7 @@
 └─────────────┘     └──────────────┘
 ```
 
-- **ml-service/** — FastAPI + YOLOv8 + OpenCV + NetworkX. Выполняет сегментацию и расчёт метрик. Нуждается в GPU (CUDA).
+- **ml-service/** — FastAPI + YOLO11 + OpenCV + NetworkX. Выполняет сегментацию и расчёт метрик. Нуждается в GPU (CUDA).
 - **backend/** — Django 6 + DRF + Channels (WebSocket). REST API, чат с YandexGPT, хранение результатов.
 - **frontend/** — React 18 + Vite + TailwindCSS. Интерактивный канвас для визуализации сегментации.
 - **telegram-bot/** — aiogram 3. Полная интеграция с backend через REST API.
@@ -212,23 +212,62 @@ Telegram-бот запускается автоматически в Docker Comp
 
 ## Обучение модели
 
-Модель обучена на датасете, размеченном в RoboFlow, с использованием YOLOv8 instance segmentation.
+Модель обучена на датасете из 290 изображений, размеченном в RoboFlow (instance segmentation), с использованием YOLO11x-seg (ultralytics).
 
 **Классы сегментации:**
 - `0` — leaf (лист)
 - `1` — root (корень)
 - `2` — stem (стебель)
 
-**Команда обучения:**
+**Команда обучения (Python API):**
+
+```python
+from ultralytics import YOLO
+
+model = YOLO("yolo11x-seg.pt")
+model.train(
+    data="data.yaml",
+    epochs=200,
+    patience=30,
+    imgsz=1024,
+    batch=-1,                # автоподбор под GPU
+    workers=4,
+    device=0,
+
+    # Полноразмерные маски (критично для тонких корней)
+    mask_ratio=1,
+    retina_masks=True,
+    overlap_mask=True,
+
+    # Аугментации
+    degrees=90.0,
+    flipud=0.5,
+    fliplr=0.5,
+    scale=0.3,
+    mosaic=0.5,
+    close_mosaic=30,
+    hsv_v=0.3,
+    hsv_s=0.3,
+    hsv_h=0.02,
+    copy_paste=0.3,
+
+    # Оптимизатор
+    lr0=0.001,
+    weight_decay=0.0005,
+
+    project="plant_roots",
+    name="yolo11x_final",
+    save_period=10,
+    plots=True,
+)
+```
+
+**Инференс (CLI-скрипт FloraAI):**
 
 ```bash
-yolo task=segment mode=train \
-    model=yolov8m-seg.pt \
-    data=dataset.yaml \
-    epochs=100 \
-    imgsz=1024 \
-    batch=8 \
-    name=flora_seg
+python cli_inference.py photo.jpg                  # одно фото
+python cli_inference.py *.jpg --deep-scan          # пакетная + DeepScan (TTA x8)
+python cli_inference.py photo.jpg --save-overlay   # сохранить маску сегментации
 ```
 
 **Инференс (ultralytics CLI):**
@@ -293,7 +332,7 @@ yolo task=segment mode=predict \
 
 | Компонент | Технологии |
 |-----------|------------|
-| ML / CV | YOLOv8 (ultralytics), OpenCV, PyTorch, scikit-image, NetworkX, skan |
+| ML / CV | YOLO11x-seg (ultralytics), OpenCV, PyTorch, scikit-image, NetworkX, skan |
 | Backend | Django 6, Django REST Framework, Django Channels, Daphne, PostgreSQL 15, Redis 7 |
 | Frontend | React 18, Vite, TailwindCSS, Socket.IO, React Query |
 | Telegram | aiogram 3, FSM, Redis state storage |
@@ -306,10 +345,10 @@ yolo task=segment mode=predict \
 
 ```
 flora-ai/
-├── ml-service/              # ML-сервис (FastAPI + YOLOv8)
+├── ml-service/              # ML-сервис (FastAPI + YOLO11)
 │   ├── main.py              # Основной пайплайн анализа
 │   ├── cli_inference.py     # CLI-скрипт для инференса
-│   ├── best.pt              # Обученные веса YOLOv8
+│   ├── best.pt              # Обученные веса YOLO11
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── backend/                 # Django backend
