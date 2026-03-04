@@ -9,7 +9,7 @@ export const Footer = () => {
           © {new Date().getFullYear()} FloraAI. Все права защищены.
         </p>
         <a
-          href="https://t.me/FloraAIBot ПОМЕНЯТЬ ПОМЕНЯТЬ ПОМЕНЯТЬ ПОМЕНЯТЬ ПОМЕНЯТЬ ПОМЕНЯТЬ"
+          href="https://t.me/FloraAI_hackaton_bot"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 bg-surface-1 px-4 py-2 rounded-lg text-text-primary hover:text-accent-ai hover:bg-surface-2 transition-colors"

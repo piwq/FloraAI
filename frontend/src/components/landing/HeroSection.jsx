@@ -36,7 +36,7 @@ export const HeroSection = () => {
         </Link>
 
         <motion.a
-          href="https://t.me/FloraAIBot"
+          href="https://t.me/FloraAI_hackaton_bot"
           target="_blank"
           rel="noopener noreferrer"
           initial={{ opacity: 0, y: 20 }}

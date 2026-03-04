@@ -57,7 +57,7 @@ export const PossibilitiesSection = () => {
             title="Интеграция с Telegram"
             description="Анализируйте растения прямо с телефона. Ваш личный ИИ-агроном всегда под рукой, где бы вы ни были."
             delay={0.5}
-            link="https://t.me/FloraAIBot"
+            link="https://t.me/FloraAI_hackaton_bot"
           />
         </div>
       </div>
