@@ -77,6 +77,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         id: response.data.id, image: response.data.annotated_image_url,
         conf: response.data.conf, iou: response.data.iou, imgsz: response.data.imgsz,
         segments: response.data.segments, leaves: response.data.leaves, stems: response.data.stems,
+        leaf_area_cm2: response.data.leaf_area_cm2, stem_length_mm: response.data.stem_length_mm,
         is_deep_scan: response.data.is_deep_scan
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);

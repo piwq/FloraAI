@@ -250,55 +250,10 @@ async def handle_photo(message: Message, state: FSMContext):
 
 @router.message(ChatStates.active_chat, F.photo)
 async def handle_chat_photo(message: Message, state: FSMContext):
-    state_data = await state.get_data()
-    session_id = state_data.get('session_id')
-
-    if not session_id:
-        await state.clear()
-        await message.answer("⚠️ Сессия чата потеряна. Пожалуйста, отправьте новое фото.")
-        return
-
-    wait_msg = await message.answer("Пересылаю фото в чат... ⏳")
-
-    photo = message.photo[-1]
-    file_info = await message.bot.get_file(photo.file_id)
-    photo_bytes = await message.bot.download_file(file_info.file_path)
-
-    # Пересылаем в активный чат с подписью (или без неё)
-    data, status = await send_chat_message_to_api(
-        telegram_id=message.from_user.id,
-        message=message.caption or "",
-        session_id=session_id,
-        photo_bytes=photo_bytes.read(),
-        filename="chat_photo.jpg"
-    )
-
-    await wait_msg.delete()
-
-    if status == 200:
-        raw_reply = data.get('reply', '...')
-        formatted_reply = format_llm_to_html(raw_reply)
-        image_url = data.get('image_url')
-
-        # Если АПИ вернул ссылку на разметку (или результат), скачиваем её
-        if image_url:
-            dl_msg = await message.answer("Скачиваю разметку... ⏳")
-            async with aiohttp.ClientSession() as http_session:
-                async with http_session.get(image_url) as resp:
-                    if resp.status == 200:
-                        img_bytes = await resp.read()
-                        await message.answer_photo(
-                            photo=BufferedInputFile(img_bytes, filename="markup.jpg"),
-                            caption=formatted_reply,
-                            parse_mode="HTML"
-                        )
-                    else:
-                        await message.answer(formatted_reply, parse_mode="HTML")
-            await dl_msg.delete()
-        else:
-            await message.answer(formatted_reply, parse_mode="HTML")
-    else:
-        await message.answer("❌ Ошибка связи с сервером.")
+    # Фото в активном чате = новый анализ (переключаем на новую сессию)
+    await state.clear()
+    await set_active_session(message.from_user.id, None)
+    await handle_photo(message, state)
 
 
 @router.message(ChatStates.active_chat, F.text)

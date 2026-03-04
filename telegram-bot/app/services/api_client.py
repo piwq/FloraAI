@@ -19,8 +19,7 @@ async def upload_photo_to_api(telegram_id: int, photo_bytes: bytes, filename: st
             return {"error": str(e)}, 500
 
 
-async def send_chat_message_to_api(telegram_id: int, message: str, session_id: int, photo_bytes: bytes = None,
-                                   filename: str = None):
+async def send_chat_message_to_api(telegram_id: int, message: str, session_id: int):
     async with aiohttp.ClientSession() as session:
         try:
             data = aiohttp.FormData()
@@ -29,9 +28,6 @@ async def send_chat_message_to_api(telegram_id: int, message: str, session_id: i
 
             if message:
                 data.add_field('message', message)
-
-            if photo_bytes:
-                data.add_field('image', photo_bytes, filename=filename)
 
             async with session.post(f"{BASE_URL}/chat/", data=data) as resp:
                 return await resp.json(), resp.status

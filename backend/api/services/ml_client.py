@@ -70,13 +70,17 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
             segments = resp_json.get('segments', [])
             leaves = resp_json.get('leaves', [])
             stems = resp_json.get('stems', [])
+            extra_metrics = {
+                'leaf_area_cm2': resp_json.get('leaf_area_cm2', 0.0),
+                'stem_length_mm': resp_json.get('stem_length_mm', 0.0),
+            }
             if img_b64:
                 image_data = base64.b64decode(img_b64)
-                return ContentFile(image_data, name=f"annotated_{filename}"), segments, leaves, stems
+                return ContentFile(image_data, name=f"annotated_{filename}"), segments, leaves, stems, extra_metrics
     except Exception as e:
         print(f"ML Annotate Error: {e}")
 
-    return None, [], [], []
+    return None, [], [], [], {}
 
 
 def calibrate_camera(images, rows, cols, square_size_mm):

@@ -503,6 +503,8 @@ async def annotate_plant(file: UploadFile = File(...),
         "segments": metrics.get("segments", []),
         "leaves": metrics.get("leaves", []),
         "stems": metrics.get("stems", []),
+        "leaf_area_cm2": metrics.get("leaf_area_cm2", 0.0),
+        "stem_length_mm": metrics.get("stem_length_mm", 0.0),
         "is_deep_scan": deep_scan
     }
 

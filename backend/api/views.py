@@ -171,7 +171,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
                                    content="Отправил(а) фото на анализ")
 
         bot_reply = (
-            f"✅ **Анализ завершен!**\n\n"
+            f"✅ Анализ завершен!\n\n"
             f"🌿 Культура: {analysis.metrics.get('plant_type', 'Неизвестно')}\n"
             f"📏 Площадь листьев: {analysis.metrics.get('leaf_area_cm2', 0)} см²\n"
             f"📏 Длина корня: {analysis.metrics.get('root_length_mm', 0)} мм\n"
@@ -213,52 +213,33 @@ class ChatAPIView(APIView):
         if not session_id or (not message and not image):
             return Response({"error": "Missing parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if image:
+            return Response({"error": "Отправка фото в существующий чат не поддерживается. Создайте новый анализ."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         user = User.objects.filter(telegram_id=int(telegram_id)).first() if telegram_id else request.user
         if not user or not user.is_authenticated and not is_from_bot:
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
         session = get_object_or_404(ChatSession, id=session_id, user=user)
 
-        # --- 1. МГНОВЕННО СОХРАНЯЕМ ФОТО ---
+        # --- 1. СОХРАНЯЕМ СООБЩЕНИЕ ---
         chat_msg = ChatMessage.objects.create(session=session, role='user', content=message)
-        user_image_url = None
-        if image:
-            chat_msg.image = image
-            chat_msg.save()
-            user_image_url = request.build_absolute_uri(chat_msg.image.url)
 
-        # --- 2. МГНОВЕННО ТРАНСЛИРУЕМ ФОТО НА САЙТ (Без ожидания ИИ!) ---
+        # --- 2. ТРАНСЛИРУЕМ НА САЙТ ---
         channel_layer = get_channel_layer()
         room_group_name = f'chat_{session.id}'
         async_to_sync(channel_layer.group_send)(
             room_group_name,
-            {'type': 'chat_message', 'role': 'user', 'message': message, 'image': user_image_url}
+            {'type': 'chat_message', 'role': 'user', 'message': message, 'image': None}
         )
 
-        bot_reply_text = ""
-
-        # --- 3. АНАЛИЗ ИЛИ ОБЩЕНИЕ ---
-        if image:
-            user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
-            user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
-            user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
-
-            image.seek(0)
-            # Получаем только текст, игнорируем картинку-разметку
-            ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz, user=user)
-
-            bot_reply_text = (
-                f"✅ Фото проанализировано!\n\n"
-                f"🌿 Культура: {ml_data.get('plant_type', 'Неизвестно')}\n"
-                f"📏 Площадь: {ml_data.get('leaf_area_cm2', 0)} см²\n"
-            )
-            ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
-        else:
-            metrics = session.analysis.metrics if session.analysis else {}
-            prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
-            past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
-            bot_reply_text = get_agronomist_reply(prompt, past, message)
-            ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
+        # --- 3. ОБЩЕНИЕ С ИИ ---
+        metrics = session.analysis.metrics if session.analysis else {}
+        prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
+        past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
+        bot_reply_text = get_agronomist_reply(prompt, past, message)
+        ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
 
         # --- 4. ТРАНСЛИРУЕМ ОТВЕТ ИИ НА САЙТ ---
         async_to_sync(channel_layer.group_send)(
@@ -266,15 +247,14 @@ class ChatAPIView(APIView):
             {'type': 'chat_message', 'role': 'assistant', 'message': bot_reply_text, 'image': None}
         )
 
-        # --- 5. ДУБЛИРУЕМ ДЕЙСТВИЯ В ТГ (Если писали с сайта) ---
+        # --- 5. ДУБЛИРУЕМ В ТГ (Если писали с сайта) ---
         if not is_from_bot and user.telegram_id:
             bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
             if bot_token:
                 import requests
-                u_text = message if message else "отправил(а) фото"
                 try:
                     requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                  json={"chat_id": user.telegram_id, "text": f"💻 Вы (на сайте):\n{u_text}"}, timeout=5)
+                                  json={"chat_id": user.telegram_id, "text": f"💻 Вы (на сайте):\n{message}"}, timeout=5)
                     requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
                                   json={"chat_id": user.telegram_id, "text": f"🧑‍🌾 Агроном:\n{bot_reply_text}"},
                                   timeout=5)
@@ -444,7 +424,7 @@ class AnnotateMessageView(APIView):
         message.image.seek(0)
 
         # ПЕРЕДАЕМ ФЛАГ deep_scan В ML-КЛИЕНТ
-        annotated_file, segments, leaves, stems = get_annotated_image(
+        annotated_file, segments, leaves, stems, extra_metrics = get_annotated_image(
             message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, user=user
         )
 
@@ -464,7 +444,9 @@ class AnnotateMessageView(APIView):
                 "segments": new_ann.segments,
                 "leaves": new_ann.leaves,
                 "stems": new_ann.stems,
-                "is_deep_scan": deep_scan  # Отдаем обратно для UI
+                "leaf_area_cm2": extra_metrics.get('leaf_area_cm2', 0.0),
+                "stem_length_mm": extra_metrics.get('stem_length_mm', 0.0),
+                "is_deep_scan": deep_scan
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)

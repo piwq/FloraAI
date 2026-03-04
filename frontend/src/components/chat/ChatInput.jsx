@@ -6,9 +6,10 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Глобальный перехват Ctrl+V (работает всегда)
+  // Глобальный перехват Ctrl+V (только когда фото ещё нет)
   useEffect(() => {
     const handleGlobalPaste = (e) => {
+      if (hasImage) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       for (let i = 0; i < items.length; i++) {
@@ -22,7 +23,7 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
     };
     document.addEventListener('paste', handleGlobalPaste);
     return () => document.removeEventListener('paste', handleGlobalPaste);
-  }, []);
+  }, [hasImage]);
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
