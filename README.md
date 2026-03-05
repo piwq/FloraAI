@@ -212,76 +212,102 @@ Telegram-бот запускается автоматически в Docker Comp
 
 ## Обучение модели
 
-Модель обучена на датасете из 290 изображений, размеченном в RoboFlow (instance segmentation), с использованием YOLO11x-seg (ultralytics).
+Модель обучена на датасете, размеченном в Roboflow (instance segmentation), с использованием YOLO11s-seg (ultralytics).
 
 **Классы сегментации:**
 - `0` — leaf (лист)
 - `1` — root (корень)
 - `2` — stem (стебель)
 
-**Команда обучения (Python API):**
+**Датасет (Roboflow):**
+- ~150 оригинальных изображений, 5x аугментация → 895 train / 64 val / 46 test
+- Разрешение: 1024×1024, Contrast Stretching, Flip H+V, Rotate 90°, Crop 12–46%, Brightness ±23%, Mosaic
+
+**Лучшая команда обучения — fine-tune с предобученной модели:**
 
 ```python
+from roboflow import Roboflow
 from ultralytics import YOLO
 
-model = YOLO("yolo11x-seg.pt")
-model.train(
-    data="data.yaml",
-    epochs=200,
-    patience=30,
-    imgsz=1024,
-    batch=-1,                # автоподбор под GPU
-    workers=4,
-    device=0,
+# Скачать датасет
+rf = Roboflow(api_key="YOUR_API_KEY")
+dataset = rf.workspace("markupworkspace").project("my-first-project-jumw8").version(24).download("yolov11")
 
-    # Полноразмерные маски (критично для тонких корней)
-    mask_ratio=1,
+# Fine-tune с лучшей существующей модели
+model = YOLO("bestbest.pt")   # предобученная nano-модель как стартовая точка
+model.train(
+    data=f"{dataset.location}/data.yaml",
+    task="segment",
+    epochs=200,
+    patience=40,
+    imgsz=1024,
+    batch=4,           # RTX 4060 8GB: максимум при imgsz=1024
+    device=0,
+    amp=True,          # mixed precision — экономит VRAM
+    cos_lr=True,
+
+    # Сегментация
+    mask_ratio=4,
     retina_masks=True,
     overlap_mask=True,
 
-    # Аугментации
-    degrees=90.0,
-    flipud=0.5,
-    fliplr=0.5,
-    scale=0.3,
-    mosaic=0.5,
-    close_mosaic=30,
-    hsv_v=0.3,
-    hsv_s=0.3,
-    hsv_h=0.02,
-    copy_paste=0.3,
+    # Умеренные аугментации поверх Roboflow (онлайн-разнообразие каждую эпоху)
+    flipud=0.5, fliplr=0.5,
+    degrees=10.0, scale=0.2,
+    mosaic=0.3,
+    hsv_v=0.2, hsv_s=0.2, hsv_h=0.01,
+    copy_paste=0.0, erasing=0.0,
 
-    # Оптимизатор
-    lr0=0.001,
+    # Fine-tuning: lr меньше чем при обучении с нуля
+    lr0=0.003, lrf=0.01,
     weight_decay=0.0005,
-
-    project="plant_roots",
-    name="yolo11x_final",
+    warmup_epochs=3,
     save_period=10,
-    plots=True,
 )
+```
+
+**Результаты (лучшая модель `best_finetune_s.pt`):**
+
+| Метрика | Значение |
+|---------|---------|
+| Box mAP50 | 0.643 |
+| Box mAP50-95 | 0.407 |
+| Mask mAP50 | 0.506 |
+| Mask mAP50-95 | 0.260 |
+
+**Запуск нескольких обучений последовательно:**
+
+```bash
+cd /path/to/training
+PYTORCH_ALLOC_CONF=expandable_segments:True python train_all.py
 ```
 
 **Инференс (CLI-скрипт FloraAI):**
 
 ```bash
-python cli_inference.py photo.jpg                  # одно фото
-python cli_inference.py *.jpg --deep-scan          # пакетная + DeepScan (TTA x8)
-python cli_inference.py photo.jpg --save-overlay   # сохранить маску сегментации
+# Одно фото (модель по умолчанию)
+python cli_inference.py photo.jpg
+
+# Указать конкретную модель
+DEFAULT_MODEL=models/best_finetune_s.pt python cli_inference.py photo.jpg
+
+# Пакетная + DeepScan (TTA x8, точнее но медленнее)
+python cli_inference.py *.jpg --deep-scan
+
+# Сохранить маску сегментации
+python cli_inference.py photo.jpg --save-overlay
 ```
 
 **Инференс (ultralytics CLI):**
 
 ```bash
 yolo task=segment mode=predict \
-    model=best.pt \
+    model=ml-service/models/best_finetune_s.pt \
     source=image.jpg \
-    conf=0.25 \
-    iou=0.7 \
-    imgsz=1024
+    conf=0.25 iou=0.7 imgsz=1024
 ```
 
-Обученные веса (`best.pt`) расположены в `ml-service/best.pt`.
+Обученные веса расположены в `ml-service/models/`.
 
 ---
 
