@@ -223,7 +223,7 @@ Telegram-бот запускается автоматически в Docker Comp
 - ~150 оригинальных изображений, 5x аугментация → 895 train / 64 val / 46 test
 - Разрешение: 1024×1024, Contrast Stretching, Flip H+V, Rotate 90°, Crop 12–46%, Brightness ±23%, Mosaic
 
-**Лучшая команда обучения — fine-tune с предобученной модели:**
+**Лучшая команда обучения — YOLO11s с нуля + умеренные аугментации:**
 
 ```python
 from roboflow import Roboflow
@@ -233,13 +233,12 @@ from ultralytics import YOLO
 rf = Roboflow(api_key="YOUR_API_KEY")
 dataset = rf.workspace("markupworkspace").project("my-first-project-jumw8").version(24).download("yolov11")
 
-# Fine-tune с лучшей существующей модели
-model = YOLO("bestbest.pt")   # предобученная nano-модель как стартовая точка
+model = YOLO("yolo11s-seg.pt")  # small: в 3x больше параметров чем nano
 model.train(
     data=f"{dataset.location}/data.yaml",
     task="segment",
-    epochs=200,
-    patience=40,
+    epochs=300,
+    patience=50,
     imgsz=1024,
     batch=4,           # RTX 4060 8GB: максимум при imgsz=1024
     device=0,
@@ -258,22 +257,22 @@ model.train(
     hsv_v=0.2, hsv_s=0.2, hsv_h=0.01,
     copy_paste=0.0, erasing=0.0,
 
-    # Fine-tuning: lr меньше чем при обучении с нуля
-    lr0=0.003, lrf=0.01,
+    lr0=0.01, lrf=0.01,
     weight_decay=0.0005,
-    warmup_epochs=3,
+    warmup_epochs=5,
     save_period=10,
 )
 ```
 
-**Результаты (лучшая модель `best_finetune_s.pt`):**
+**Результаты (лучшая модель `best_aug_scratch_s.pt`):**
 
 | Метрика | Значение |
 |---------|---------|
-| Box mAP50 | 0.643 |
-| Box mAP50-95 | 0.407 |
-| Mask mAP50 | 0.506 |
-| Mask mAP50-95 | 0.260 |
+| Box mAP50 | 0.673 |
+| Box mAP50-95 | 0.453 |
+| Mask mAP50 | 0.528 |
+| Mask mAP50-95 | 0.276 |
+| Root mAP50 | 0.512 |
 
 **Запуск нескольких обучений последовательно:**
 
@@ -289,7 +288,7 @@ PYTORCH_ALLOC_CONF=expandable_segments:True python train_all.py
 python cli_inference.py photo.jpg
 
 # Указать конкретную модель
-DEFAULT_MODEL=models/best_finetune_s.pt python cli_inference.py photo.jpg
+DEFAULT_MODEL=models/best_aug_scratch_s.pt python cli_inference.py photo.jpg
 
 # Пакетная + DeepScan (TTA x8, точнее но медленнее)
 python cli_inference.py *.jpg --deep-scan
@@ -302,7 +301,7 @@ python cli_inference.py photo.jpg --save-overlay
 
 ```bash
 yolo task=segment mode=predict \
-    model=ml-service/models/best_finetune_s.pt \
+    model=ml-service/models/best_aug_scratch_s.pt \
     source=image.jpg \
     conf=0.25 iou=0.7 imgsz=1024
 ```
