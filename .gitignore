@@ -16,6 +16,7 @@ frontend/dist/
 backend/.env
 frontend/.env
 telegram-bot/.env
+ml-service/.env
 
 # OS
 .DS_Store
