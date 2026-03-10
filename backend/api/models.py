@@ -96,6 +96,7 @@ class MessageAnnotation(models.Model):
     stem_length_mm = models.FloatField(default=0.0, blank=True)
     is_deep_scan = models.BooleanField(default=False)
     is_baked = models.BooleanField(default=False)
+    model_name = models.CharField(max_length=100, blank=True, default='', verbose_name="Модель YOLO")
 
     class Meta:
         # Сортируем так, чтобы новые разметки всегда были первыми

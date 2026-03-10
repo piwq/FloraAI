@@ -3,7 +3,7 @@ import { Send, Paperclip, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => {
   const [message, setMessage] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const fileInputRef = useRef(null);
 
   // Глобальный перехват Ctrl+V (только когда фото ещё нет)
@@ -16,7 +16,7 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
         if (items[i].type.indexOf('image') !== -1) {
           const blob = items[i].getAsFile();
           const file = new File([blob], "pasted-photo.png", { type: items[i].type });
-          setSelectedFile(file);
+          setSelectedFiles(prev => [...prev, file]);
           break;
         }
       }
@@ -27,10 +27,10 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
-    if ((message.trim() || selectedFile) && !isLoading) {
-      onSendMessage(message, selectedFile);
+    if ((message.trim() || selectedFiles.length > 0) && !isLoading) {
+      onSendMessage(message, selectedFiles);
       setMessage('');
-      setSelectedFile(null);
+      setSelectedFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -45,28 +45,49 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFiles(prev => [...prev, ...Array.from(e.target.files)]);
     }
   };
 
-  const removeFile = () => {
-    setSelectedFile(null);
+  const removeFile = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  // --- СОСТОЯНИЕ 1: ФОТО ВЫБРАНО И ГОТОВО К ОТПРАВКЕ (Превью) ---
-  if (selectedFile) {
+  const removeAllFiles = () => {
+    setSelectedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // --- СОСТОЯНИЕ 1: ФОТО ВЫБРАНЫ И ГОТОВЫ К ОТПРАВКЕ (Превью) ---
+  if (selectedFiles.length > 0) {
     return (
       <div className="bg-surface-2 border-t border-border-color p-6 flex flex-col items-center justify-center min-h-[160px]">
         <div className="w-full max-w-md bg-surface-1 p-6 rounded-2xl border border-accent-ai shadow-lg animate-fade-in-down text-center">
           <ImageIcon size={32} className="mx-auto text-accent-ai mb-3" />
-          <p className="text-text-primary font-medium mb-6 truncate px-4">{selectedFile.name}</p>
+          {selectedFiles.length === 1 ? (
+            <p className="text-text-primary font-medium mb-4 truncate px-4">{selectedFiles[0].name}</p>
+          ) : (
+            <div className="mb-4 px-4">
+              <p className="text-text-primary font-bold mb-2">{selectedFiles.length} фото выбрано</p>
+              <div className="max-h-24 overflow-y-auto text-sm text-text-secondary space-y-1">
+                {selectedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2">
+                    <span className="truncate">{f.name}</span>
+                    <button onClick={() => removeFile(i)} className="text-red-400 hover:text-red-600 flex-shrink-0 text-xs">✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-3 justify-center">
             <button
-              onClick={removeFile}
+              onClick={removeAllFiles}
               disabled={isLoading}
               className="px-5 py-2.5 bg-surface-2 text-text-secondary rounded-xl hover:text-red-500 transition-colors disabled:opacity-50"
             >
@@ -78,7 +99,7 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
               className="px-5 py-2.5 bg-accent-ai text-white rounded-xl hover:bg-opacity-90 transition-colors flex items-center gap-2 font-bold disabled:opacity-50 shadow-md"
             >
               {isLoading ? <Loader2 size={20} className="animate-spin"/> : <Send size={20}/>}
-              Анализировать
+              Анализировать{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}
             </button>
           </div>
         </div>
@@ -92,7 +113,7 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
       <form onSubmit={handleSubmit} className="flex items-end gap-2 max-w-4xl mx-auto relative">
 
         {/* Невидимый инпут для файлов */}
-        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" multiple />
 
         {/* ДИНАМИЧЕСКАЯ КНОПКА СЛЕВА */}
         {!hasImage ? (
@@ -131,7 +152,7 @@ export const ChatInput = ({ onSendMessage, isLoading, hasImage, onOpenLab }) => 
 
         <button
           type="submit"
-          disabled={isLoading || (!message.trim() && !selectedFile) || !hasImage}
+          disabled={isLoading || (!message.trim() && selectedFiles.length === 0) || !hasImage}
           className="bg-accent-ai text-white p-3 rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 shadow-sm"
         >
           <Send size={20} />

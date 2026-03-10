@@ -1,5 +1,5 @@
-import os, base64
-import json
+import os, base64, glob, json
+from collections import OrderedDict
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form
 from ultralytics import YOLO
@@ -11,8 +11,86 @@ from skan import Skeleton, summarize
 import torch
 app = FastAPI()
 
+# --- MODEL REGISTRY ---
+MODELS_DIR = os.getenv("MODELS_DIR", "models")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "best_aug_scratch_s.pt")
+MAX_LOADED_MODELS = int(os.getenv("MAX_LOADED_MODELS", "2"))
+
+
+class ModelRegistry:
+    def __init__(self, models_dir: str, default_model: str, max_loaded: int):
+        self.models_dir = models_dir
+        self.default_model_name = default_model
+        self.max_loaded = max_loaded
+        self.catalog: dict[str, dict] = {}
+        self._loaded: OrderedDict[str, YOLO] = OrderedDict()
+        self.scan()
+        # Pre-load default model
+        self.get_model()
+
+    def scan(self):
+        self.catalog.clear()
+        pt_files = glob.glob(os.path.join(self.models_dir, "*.pt"))
+        if os.path.exists(self.default_model_name):
+            pt_files.append(self.default_model_name)
+        for pt_path in pt_files:
+            name = os.path.basename(pt_path)
+            if name in self.catalog:
+                continue
+            self.catalog[name] = self._extract_metadata(pt_path)
+
+    def _extract_metadata(self, pt_path: str) -> dict:
+        meta = {
+            "name": os.path.basename(pt_path),
+            "path": pt_path,
+            "size_mb": round(os.path.getsize(pt_path) / 1024 / 1024, 1),
+        }
+        try:
+            ckpt = torch.load(pt_path, map_location="cpu", weights_only=False)
+            train_args = ckpt.get("train_args", {})
+            train_metrics = ckpt.get("train_metrics", {})
+            meta["epochs"] = train_args.get("epochs")
+            meta["imgsz"] = train_args.get("imgsz")
+            meta["architecture"] = train_args.get("model", "unknown")
+            meta["mAP50"] = train_metrics.get("metrics/mAP50(M)")
+            meta["mAP50_95"] = train_metrics.get("metrics/mAP50-95(M)")
+            meta["precision"] = train_metrics.get("metrics/precision(M)")
+            meta["recall"] = train_metrics.get("metrics/recall(M)")
+            del ckpt
+        except Exception as e:
+            print(f"⚠️ Не удалось прочитать метаданные {pt_path}: {e}")
+        return meta
+
+    def get_model(self, name: str = None) -> YOLO:
+        name = name or self.default_model_name
+        if name not in self.catalog:
+            raise ValueError(f"Модель '{name}' не найдена. Доступные: {list(self.catalog.keys())}")
+        if name in self._loaded:
+            self._loaded.move_to_end(name)
+            return self._loaded[name]
+        while len(self._loaded) >= self.max_loaded:
+            evicted_name, evicted_model = self._loaded.popitem(last=False)
+            del evicted_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print(f"♻️ Выгружена модель '{evicted_name}' из GPU")
+        path = self.catalog[name]["path"]
+        print(f"📦 Загрузка модели '{name}' из {path}...")
+        self._loaded[name] = YOLO(path)
+        return self._loaded[name]
+
+    def list_models(self) -> list[dict]:
+        result = []
+        for name, meta in self.catalog.items():
+            entry = {**meta}
+            entry["is_default"] = (name == self.default_model_name)
+            entry["is_loaded"] = (name in self._loaded)
+            result.append(entry)
+        return result
+
+
 print("🚀 Инициализация Flora AI ML Service (с поддержкой DeepScan)...")
-model = YOLO("best.pt")
+registry = ModelRegistry(MODELS_DIR, DEFAULT_MODEL, MAX_LOADED_MODELS)
 
 # --- 1. НАСТРОЙКИ ---
 YOLO_CONF = float(os.getenv("YOLO_CONF", 0.1))
@@ -72,11 +150,12 @@ def get_polygons_from_mask(mask, offset_id=0):
     return polygons, count
 
 
-def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=False,
+def analyze_biomass(yolo_model, img, conf, iou, imgsz, draw_annotation=False, deep_scan=False,
                     mm_per_pixel=None, cm2_per_pixel=None,
                     bake_overlay=False, color_leaf='#16A34A', color_root='#9333EA', color_stem='#2563EB'):
     mm_per_pixel = mm_per_pixel or MM_PER_PIXEL
-    cm2_per_pixel = cm2_per_pixel or CM2_PER_PIXEL
+    # Всегда выводим cm2_per_pixel из mm_per_pixel, если не передан явно
+    cm2_per_pixel = cm2_per_pixel or (mm_per_pixel / 10.0) ** 2
     h, w = img.shape[:2]
 
     metrics = {
@@ -141,7 +220,7 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
     # === 2. ПРОГОН НЕЙРОСЕТИ И SOFT VOTING ===
     for aug_img in images_to_process:
         with torch.no_grad():
-            res = model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
+            res = yolo_model(aug_img, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
 
         # Мягкие маски текущей аугментации (max по экземплярам одного класса)
         aug_leaf = np.zeros((h, w), dtype=np.float32)
@@ -405,10 +484,12 @@ def analyze_biomass(img, conf, iou, imgsz, draw_annotation=False, deep_scan=Fals
                 metrics["segments"].append(segment_data)
 
             # === RSA-МЕТРИКИ (Root System Architecture) ===
-            # Кончики корней: endpoint-ветви (branch-type=1) в skan
+            # Кончики корней: только валидные endpoint-ветви (не отфильтрованные как шум)
             b_type_col = 'branch-type' if 'branch-type' in branch_data.columns else 'branch_type'
-            endpoint_branches = branch_data[branch_data[b_type_col] == 1]
-            metrics["root_tip_count"] = len(endpoint_branches)
+            metrics["root_tip_count"] = sum(
+                1 for idx in valid_branch_indices
+                if branch_data.loc[idx, b_type_col] == 1
+            )
 
             # Узлы ветвления (fork): вершины графа со степенью >= 3
             metrics["root_fork_count"] = sum(1 for n in G.nodes() if G.degree(n) >= 3)
@@ -542,10 +623,16 @@ def _parse_calibration(camera_matrix_json: Optional[str], dist_coeffs_json: Opti
     return cam_mtx, d_coeffs, mpp, cpp
 
 
+@app.get("/models")
+async def list_models():
+    return {"models": registry.list_models()}
+
+
 @app.post("/predict")
 async def predict_plant(file: UploadFile = File(...),
                         conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
                         deep_scan: bool = Form(False),
+                        model_name: Optional[str] = Form(None),
                         camera_matrix_json: Optional[str] = Form(None),
                         dist_coeffs_json: Optional[str] = Form(None),
                         user_mm_per_pixel: Optional[float] = Form(None),
@@ -553,12 +640,13 @@ async def predict_plant(file: UploadFile = File(...),
     cam_mtx, d_coeffs, mpp, cpp = _parse_calibration(
         camera_matrix_json, dist_coeffs_json, user_mm_per_pixel, user_cm2_per_pixel)
 
+    yolo_model = registry.get_model(model_name)
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if cam_mtx is not None and d_coeffs is not None:
         img = cv2.undistort(img, cam_mtx, d_coeffs, None, cam_mtx)
-    metrics, _ = analyze_biomass(img, conf, iou, imgsz, False, deep_scan, mpp, cpp)
+    metrics, _ = analyze_biomass(yolo_model, img, conf, iou, imgsz, False, deep_scan, mpp, cpp)
     return metrics
 
 
@@ -567,6 +655,7 @@ async def annotate_plant(file: UploadFile = File(...),
                          conf: float = Form(0.1), iou: float = Form(0.6), imgsz: int = Form(2048),
                          deep_scan: bool = Form(False),
                          bake_overlay: bool = Form(False),
+                         model_name: Optional[str] = Form(None),
                          color_leaf: str = Form('#16A34A'),
                          color_root: str = Form('#9333EA'),
                          color_stem: str = Form('#2563EB'),
@@ -577,6 +666,7 @@ async def annotate_plant(file: UploadFile = File(...),
     cam_mtx, d_coeffs, mpp, cpp = _parse_calibration(
         camera_matrix_json, dist_coeffs_json, user_mm_per_pixel, user_cm2_per_pixel)
 
+    yolo_model = registry.get_model(model_name)
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -584,7 +674,7 @@ async def annotate_plant(file: UploadFile = File(...),
         img = cv2.undistort(img, cam_mtx, d_coeffs, None, cam_mtx)
 
     metrics, annotated_frame = analyze_biomass(
-        img, conf, iou, imgsz, True, deep_scan, mpp, cpp,
+        yolo_model, img, conf, iou, imgsz, True, deep_scan, mpp, cpp,
         bake_overlay=bake_overlay, color_leaf=color_leaf, color_root=color_root, color_stem=color_stem
     )
 
@@ -592,16 +682,13 @@ async def annotate_plant(file: UploadFile = File(...),
 
     _, buffer = cv2.imencode('.jpg', annotated_frame)
 
-    return {
-        "annotated_image_base64": base64.b64encode(buffer).decode('utf-8'),
-        "segments": metrics.get("segments", []),
-        "leaves": metrics.get("leaves", []),
-        "stems": metrics.get("stems", []),
-        "leaf_area_cm2": metrics.get("leaf_area_cm2", 0.0),
-        "stem_length_mm": metrics.get("stem_length_mm", 0.0),
-        "is_deep_scan": deep_scan,
-        "is_baked": bake_overlay
-    }
+    # Возвращаем ВСЕ метрики (включая RSA, фрактальную размерность и т.д.)
+    # чтобы DeepScan-результаты не терялись
+    result = {k: v for k, v in metrics.items() if k != 'annotated_image_base64'}
+    result["annotated_image_base64"] = base64.b64encode(buffer).decode('utf-8')
+    result["is_deep_scan"] = deep_scan
+    result["is_baked"] = bake_overlay
+    return result
 
 
 @app.post("/calibrate")

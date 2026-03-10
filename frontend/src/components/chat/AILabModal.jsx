@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { getAnnotatedImage, getUserProfile, updateUserProfile } from '../../services/apiClient';
+import { getAnnotatedImage, getUserProfile, updateUserProfile, getAvailableModels } from '../../services/apiClient';
 import InteractivePlantCanvas from './InteractivePlantCanvas';
 
 const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [], onAnnotationCreated }) => {
-  if (!isOpen) return null;
-
   const [localAnnotations, setLocalAnnotations] = useState(initialAnnotations);
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -33,6 +31,18 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
   });
 
   const [showAdvancedAI, setShowAdvancedAI] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+
+  // Синхронизируем localAnnotations когда родитель добавляет новые аннотации (загрузка с сервера)
+  useEffect(() => {
+    setLocalAnnotations(prev => {
+      const prevIds = new Set(prev.map(a => a.id));
+      const newFromServer = initialAnnotations.filter(a => !prevIds.has(a.id));
+      if (newFromServer.length === 0) return prev;
+      return [...prev, ...newFromServer];
+    });
+  }, [initialAnnotations.length]);
 
   useEffect(() => {
     getUserProfile().then(res => {
@@ -48,6 +58,13 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       });
       if (initialAnnotations.length > 0) setActiveTab('history');
     }).catch(err => console.error(err));
+
+    getAvailableModels().then(res => {
+      const models = res.data.models || [];
+      setAvailableModels(models);
+      const def = models.find(m => m.is_default);
+      if (def) setSelectedModel(def.name);
+    }).catch(err => console.error("Failed to load models:", err));
   }, [initialAnnotations]);
 
   // Эффект для динамического лоадера DeepScan
@@ -76,8 +93,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       const payload = { ...settings, yolo_conf: parseFloat(settings.yolo_conf), yolo_iou: parseFloat(settings.yolo_iou), yolo_imgsz: parseInt(settings.yolo_imgsz, 10) };
       await updateUserProfile(payload);
 
-      // Передаем флаги isDeepScan и isBaked в API
-      const response = await getAnnotatedImage(messageId, isDeepScan, isBaked);
+      // Передаем флаги isDeepScan, isBaked и выбранную модель в API
+      const response = await getAnnotatedImage(messageId, isDeepScan, isBaked, selectedModel);
 
       const newAnn = {
         id: response.data.id, image: response.data.annotated_image_url,
@@ -85,7 +102,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         segments: response.data.segments, leaves: response.data.leaves, stems: response.data.stems,
         leaf_area_cm2: response.data.leaf_area_cm2, stem_length_mm: response.data.stem_length_mm,
         is_deep_scan: response.data.is_deep_scan,
-        is_baked: response.data.is_baked
+        is_baked: response.data.is_baked,
+        model_name: response.data.model_name
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
@@ -97,6 +115,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       setIsAnnotating(false);
     }
   };
+
+  if (!isOpen) return null;
 
   const activeAnn = localAnnotations[activeIndex];
 
@@ -198,6 +218,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold text-gray-800 text-sm">Версия v{localAnnotations.length - idx}</span>
                           <div className="flex gap-1">
+                            {ann.model_name && <span className="bg-gray-100 text-gray-600 text-[9px] font-black px-1.5 py-0.5 rounded">{ann.model_name.replace('.pt', '')}</span>}
                             {ann.is_deep_scan && <span className="bg-purple-100 text-purple-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">DeepScan</span>}
                             {ann.is_baked && <span className="bg-amber-100 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Baked</span>}
                           </div>
@@ -216,6 +237,49 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
             {/* ВКЛАДКА НАСТРОЕК */}
             {activeTab === 'settings' && (
               <div className="p-5 space-y-6">
+
+                {/* ВЫБОР МОДЕЛИ */}
+                {availableModels.length > 1 && (
+                  <div>
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 block flex items-center gap-2">
+                      🧠 Модель нейросети
+                    </label>
+                    <div className="space-y-2">
+                      {availableModels.map(model => (
+                        <div
+                          key={model.name}
+                          onClick={() => setSelectedModel(model.name)}
+                          className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                            selectedModel === model.name
+                              ? 'border-green-500 bg-green-50 shadow-sm'
+                              : 'border-gray-100 hover:border-gray-200 bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-gray-800">{model.name.replace('.pt', '')}</span>
+                            <div className="flex gap-1">
+                              {model.is_default && (
+                                <span className="bg-green-100 text-green-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">
+                                  default
+                                </span>
+                              )}
+                              {model.is_loaded && (
+                                <span className="bg-blue-100 text-blue-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">
+                                  в памяти
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-3 mt-1 text-[10px] text-gray-500 font-mono">
+                            {model.mAP50 != null && <span>mAP50: {(model.mAP50 * 100).toFixed(1)}%</span>}
+                            {model.mAP50_95 != null && <span>mAP50-95: {(model.mAP50_95 * 100).toFixed(1)}%</span>}
+                            <span>{model.size_mb} MB</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* ПРЕСЕТЫ */}
                 <div>

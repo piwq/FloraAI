@@ -9,7 +9,7 @@ import os
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .services.ml_client import analyze_plant_image, get_annotated_image, calibrate_camera
+from .services.ml_client import analyze_plant_image, get_annotated_image, calibrate_camera, get_available_models
 from .services.yandex_gpt_client import get_agronomist_reply
 
 User = get_user_model()
@@ -150,7 +150,7 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
 
         user_conf = user.yolo_conf if hasattr(user, 'yolo_conf') else 0.25
         user_iou = user.yolo_iou if hasattr(user, 'yolo_iou') else 0.7
-        user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 640
+        user_imgsz = user.yolo_imgsz if hasattr(user, 'yolo_imgsz') else 1024
 
         # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
         image.seek(0)
@@ -292,6 +292,7 @@ class ChatDetailAPIView(APIView):
                         "stem_length_mm": a.stem_length_mm,
                         "is_deep_scan": a.is_deep_scan,
                         "is_baked": a.is_baked,
+                        "model_name": a.model_name,
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -431,9 +432,11 @@ class AnnotateMessageView(APIView):
 
         message.image.seek(0)
 
+        model_name = request.data.get('model_name', None)
+
         # ПЕРЕДАЕМ ФЛАГИ deep_scan И bake_overlay В ML-КЛИЕНТ
         annotated_file, segments, leaves, stems, extra_metrics = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, bake_overlay, user=user
+            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, bake_overlay, user=user, model_name=model_name
         )
 
         if annotated_file:
@@ -448,6 +451,7 @@ class AnnotateMessageView(APIView):
                 stem_length_mm=extra_metrics.get('stem_length_mm', 0.0),
                 is_deep_scan=deep_scan,
                 is_baked=bake_overlay,
+                model_name=model_name or '',
             )
             return Response({
                 "id": new_ann.id,
@@ -459,7 +463,8 @@ class AnnotateMessageView(APIView):
                 "leaf_area_cm2": extra_metrics.get('leaf_area_cm2', 0.0),
                 "stem_length_mm": extra_metrics.get('stem_length_mm', 0.0),
                 "is_deep_scan": deep_scan,
-                "is_baked": bake_overlay
+                "is_baked": bake_overlay,
+                "model_name": model_name or '',
             })
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)
@@ -502,3 +507,10 @@ class CalibrateView(APIView):
         user.calib_reprojection_error = None
         user.save()
         return Response({"status": "reset", "message": "Калибровка сброшена к стандартной"})
+
+
+class MLModelsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(get_available_models())

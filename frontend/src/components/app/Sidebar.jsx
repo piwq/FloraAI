@@ -89,7 +89,7 @@ export const Sidebar = ({ isOpen, onNewChat, activeChatId, setActiveChatId, onDe
                 </li>
                 <li>
                     {/* Изменили ссылку на бота */}
-                    <a href="https://t.me/FloraAIBot" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-surface-1">
+                    <a href="https://t.me/FloraAI_hackaton_bot" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2.5 rounded-lg text-sm text-text-secondary hover:bg-surface-1">
                         <Send size={16} className="mr-3 text-blue-400" /> Telegram бот
                     </a>
                 </li>

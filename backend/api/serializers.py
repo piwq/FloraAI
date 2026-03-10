@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from .models import PlantAnalysis, SiteSettings
 
 User = get_user_model()
@@ -31,6 +32,10 @@ class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     name = serializers.CharField(source='first_name', required=False, allow_blank=True)
     birthDate = serializers.DateField(source='birth_date', required=False, allow_null=True)
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
 
     class Meta:
         model = User

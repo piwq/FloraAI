@@ -19,9 +19,21 @@ def _calib_payload(user):
     return payload
 
 
-def analyze_plant_image(image_file, conf, iou, imgsz, user=None):
+def get_available_models():
+    try:
+        response = requests.get("http://flora_ml:8001/models", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        print(f"ML Models Error: {e}")
+    return {"models": []}
+
+
+def analyze_plant_image(image_file, conf, iou, imgsz, user=None, model_name=None):
     files = {'file': (image_file.name, image_file.read(), image_file.content_type)}
     data_payload = {'conf': conf, 'iou': iou, 'imgsz': imgsz}
+    if model_name:
+        data_payload['model_name'] = model_name
     data_payload.update(_calib_payload(user))
 
     ml_data = {
@@ -49,7 +61,7 @@ def analyze_plant_image(image_file, conf, iou, imgsz, user=None):
     return ml_data, annotated_image_content
 
 
-def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False, bake_overlay=False, user=None):
+def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", color_root="#9333EA", color_stem="#2563EB", deep_scan=False, bake_overlay=False, user=None, model_name=None):
     try:
         filename = os.path.basename(image_file.name)
         file_content = image_file.read()
@@ -61,6 +73,8 @@ def get_annotated_image(image_file, conf, iou, imgsz, color_leaf="#16A34A", colo
             'deep_scan': 'true' if deep_scan else 'false',
             'bake_overlay': 'true' if bake_overlay else 'false',
         }
+        if model_name:
+            data_payload['model_name'] = model_name
         data_payload.update(_calib_payload(user))
 
         response = requests.post("http://flora_ml:8001/annotate", files=files, data=data_payload, timeout=120)
