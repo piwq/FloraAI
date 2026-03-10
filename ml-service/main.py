@@ -13,7 +13,7 @@ app = FastAPI()
 
 # --- MODEL REGISTRY ---
 MODELS_DIR = os.getenv("MODELS_DIR", "models")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "best.pt")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "best_aug_scratch_s.pt")
 MAX_LOADED_MODELS = int(os.getenv("MAX_LOADED_MODELS", "2"))
 
 
