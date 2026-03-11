@@ -115,12 +115,27 @@ const InteractivePlantCanvas = ({
           volume: hoveredSegment.volume_mm3.toFixed(2), count: 1, color: '#fbbf24'
         };
       }
-    } else {
+    } else if (hoveredSegment.category === 'leaf') {
+      const lpa = leafPxAreas.find(a => a.id === hoveredSegment.id);
+      const area = lpa && totalLeafPx > 0 && metrics?.leaf_area_cm2
+        ? (lpa.px / totalLeafPx * metrics.leaf_area_cm2).toFixed(2)
+        : '—';
       inspectorData = {
-        title: hoveredSegment.category === 'leaf' ? `Лист #${hoveredSegment.id}` : `Стебель #${hoveredSegment.id}`,
-        isGroup: false, type: hoveredSegment.category === 'leaf' ? 'Органическая масса' : 'Несущий каркас',
-        length: '—', thickness: '—', volume: '—', count: 1,
-        color: hoveredSegment.category === 'leaf' ? '#4ade80' : '#60a5fa'
+        title: `Лист #${hoveredSegment.id}`,
+        isGroup: false, type: 'Органическая масса',
+        rows: [{ label: 'Площадь', value: area, unit: 'см²' }],
+        color: '#4ade80'
+      };
+    } else {
+      const spa = stemPxAreas.find(a => a.id === hoveredSegment.id);
+      const len = spa && totalStemPx > 0 && metrics?.stem_length_mm
+        ? (spa.px / totalStemPx * metrics.stem_length_mm).toFixed(1)
+        : '—';
+      inspectorData = {
+        title: `Стебель #${hoveredSegment.id}`,
+        isGroup: false, type: 'Несущий каркас',
+        rows: [{ label: 'Длина', value: len, unit: 'мм' }],
+        color: '#60a5fa'
       };
     }
   }
@@ -130,6 +145,20 @@ const InteractivePlantCanvas = ({
 
   // --- HEATMAP: Ищем максимальную толщину корня для нормализации ---
   const maxThickness = segments.reduce((max, s) => Math.max(max, s.thickness_mm), 0.001);
+
+  // --- Вычисление площади полигона по формуле Шнурования (Shoelace) ---
+  const shoelaceArea = (path) => {
+    let a = 0;
+    for (let i = 0; i < path.length; i++) {
+      const j = (i + 1) % path.length;
+      a += path[i][0] * path[j][1] - path[j][0] * path[i][1];
+    }
+    return Math.abs(a) / 2;
+  };
+  const leafPxAreas = leaves.map(l => ({ id: l.id, px: shoelaceArea(l.path) }));
+  const totalLeafPx = leafPxAreas.reduce((s, a) => s + a.px, 0);
+  const stemPxAreas = stems.map(s => ({ id: s.id, px: shoelaceArea(s.path) }));
+  const totalStemPx = stemPxAreas.reduce((s, a) => s + a.px, 0);
 
   return (
     <div
@@ -268,18 +297,29 @@ const InteractivePlantCanvas = ({
             </div>
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between gap-4"><span className="text-gray-400">Тип:</span><span className="font-medium text-right">{inspectorData.type}</span></div>
-              {inspectorData.isGroup && <div className="flex justify-between gap-4"><span className="text-gray-400">Склеено:</span><span className="font-medium">{inspectorData.count} шт.</span></div>}
-              <div className="flex justify-between gap-4"><span className="text-gray-400">{inspectorData.isGroup ? "Общая длина:" : "Длина:"}</span><span className="font-mono">{inspectorData.length} мм</span></div>
-              <div className="flex justify-between gap-4"><span className="text-gray-400">{inspectorData.isGroup ? "Ср. Толщина:" : "Толщина (Ø):"}</span><span className="font-mono">{inspectorData.thickness} мм</span></div>
-              <div className="flex justify-between gap-4 pt-2 border-t mt-2" style={{ borderColor: `${inspectorData.color}20`, color: inspectorData.color }}><span>{inspectorData.isGroup ? "Сумм. Объем:" : "3D Объем:"}</span><span className="font-mono font-bold text-sm">{inspectorData.volume} mm³</span></div>
+              {inspectorData.rows ? (
+                inspectorData.rows.map((row, i) => (
+                  <div key={i} className="flex justify-between gap-4 pt-2 border-t mt-2" style={{ borderColor: `${inspectorData.color}20`, color: inspectorData.color }}>
+                    <span>{row.label}:</span>
+                    <span className="font-mono font-bold text-sm">{row.value} {row.unit}</span>
+                  </div>
+                ))
+              ) : (
+                <>
+                  {inspectorData.isGroup && <div className="flex justify-between gap-4"><span className="text-gray-400">Склеено:</span><span className="font-medium">{inspectorData.count} шт.</span></div>}
+                  <div className="flex justify-between gap-4"><span className="text-gray-400">{inspectorData.isGroup ? "Общая длина:" : "Длина:"}</span><span className="font-mono">{inspectorData.length} мм</span></div>
+                  <div className="flex justify-between gap-4"><span className="text-gray-400">{inspectorData.isGroup ? "Ср. Толщина:" : "Толщина (Ø):"}</span><span className="font-mono">{inspectorData.thickness} мм</span></div>
+                  <div className="flex justify-between gap-4 pt-2 border-t mt-2" style={{ borderColor: `${inspectorData.color}20`, color: inspectorData.color }}><span>{inspectorData.isGroup ? "Сумм. Объем:" : "3D Объем:"}</span><span className="font-mono font-bold text-sm">{inspectorData.volume} mm³</span></div>
+                </>
+              )}
             </div>
           </div>
         ) : (
           <div className="bg-black/85 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white text-xs w-72 shadow-2xl">
             <h4 className="font-bold text-green-400 mb-3 uppercase tracking-wider border-b border-white/20 pb-2">Фито-Метрики</h4>
             <div className="space-y-2">
-              {settings?.show_leaf !== false && <div className="flex justify-between text-green-200"><span>Площадь листьев:</span><span className="font-mono font-bold">{metrics?.leaf_area_cm2 || 0} см²</span></div>}
-              {settings?.show_stem !== false && <div className="flex justify-between text-blue-200 border-b border-white/10 pb-2"><span>Длина стебля:</span><span className="font-mono font-bold">{metrics?.stem_length_mm || 0} мм</span></div>}
+              <div className="flex justify-between text-green-200"><span>Площадь листьев:</span><span className="font-mono font-bold">{metrics?.leaf_area_cm2 || 0} см²</span></div>
+              <div className="flex justify-between text-blue-200 border-b border-white/10 pb-2"><span>Длина стебля:</span><span className="font-mono font-bold">{metrics?.stem_length_mm || 0} мм</span></div>
               <div className="flex justify-between pt-1"><span className="text-gray-400">Длина корней:</span><span className="font-mono">{totalRootLen} мм</span></div>
               <div className="flex justify-between"><span className="text-gray-400">Объем биомассы:</span><span className="font-mono font-bold text-yellow-300">{totalRootVol} мм³</span></div>
             </div>

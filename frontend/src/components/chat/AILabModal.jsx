@@ -138,7 +138,7 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
             activeAnn.is_baked ? (
               <div className="relative w-full h-full">
                 <InteractivePlantCanvas
-                  imageUrl={activeAnn.image} segments={[]} leaves={[]} stems={[]}
+                  imageUrl={activeAnn.image} segments={activeAnn.segments || []} leaves={activeAnn.leaves || []} stems={activeAnn.stems || []}
                   settings={{ show_leaf: false, show_root: false, show_stem: false }} metrics={activeAnn}
                   externalScale={canvasView.scale} externalPosition={canvasView.position}
                   externalFilters={canvasView.imgFilters} onViewChange={setCanvasView}
