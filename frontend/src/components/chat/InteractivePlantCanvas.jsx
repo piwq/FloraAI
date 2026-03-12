@@ -92,6 +92,20 @@ const InteractivePlantCanvas = ({
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
+  // --- Вычисление площади полигона по формуле Шнурования (Shoelace) ---
+  const shoelaceArea = (path) => {
+    let a = 0;
+    for (let i = 0; i < path.length; i++) {
+      const j = (i + 1) % path.length;
+      a += path[i][0] * path[j][1] - path[j][0] * path[i][1];
+    }
+    return Math.abs(a) / 2;
+  };
+  const leafPxAreas = leaves.map(l => ({ id: l.id, px: shoelaceArea(l.path) }));
+  const totalLeafPx = leafPxAreas.reduce((s, a) => s + a.px, 0);
+  const stemPxAreas = stems.map(s => ({ id: s.id, px: shoelaceArea(s.path) }));
+  const totalStemPx = stemPxAreas.reduce((s, a) => s + a.px, 0);
+
   let inspectorData = null;
   if (hoveredSegment && overlayEnabled) {
     if (hoveredSegment.category === 'root') {
@@ -145,20 +159,6 @@ const InteractivePlantCanvas = ({
 
   // --- HEATMAP: Ищем максимальную толщину корня для нормализации ---
   const maxThickness = segments.reduce((max, s) => Math.max(max, s.thickness_mm), 0.001);
-
-  // --- Вычисление площади полигона по формуле Шнурования (Shoelace) ---
-  const shoelaceArea = (path) => {
-    let a = 0;
-    for (let i = 0; i < path.length; i++) {
-      const j = (i + 1) % path.length;
-      a += path[i][0] * path[j][1] - path[j][0] * path[i][1];
-    }
-    return Math.abs(a) / 2;
-  };
-  const leafPxAreas = leaves.map(l => ({ id: l.id, px: shoelaceArea(l.path) }));
-  const totalLeafPx = leafPxAreas.reduce((s, a) => s + a.px, 0);
-  const stemPxAreas = stems.map(s => ({ id: s.id, px: shoelaceArea(s.path) }));
-  const totalStemPx = stemPxAreas.reduce((s, a) => s + a.px, 0);
 
   return (
     <div
