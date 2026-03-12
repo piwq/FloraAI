@@ -3,6 +3,19 @@ import { getAnnotatedImage, getUserProfile, updateUserProfile, getAvailableModel
 import InteractivePlantCanvas from './InteractivePlantCanvas';
 import ErrorBoundary from '../ErrorBoundary';
 
+const MetricRow = ({ label, value, unit, color }) => {
+  if (value === undefined || value === null || value === 0) return null;
+  const displayValue = typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(4).replace(/\.?0+$/, '')) : value;
+  return (
+    <div className="flex justify-between items-center py-0.5">
+      <span className="text-gray-500">{label}</span>
+      <span className={`font-bold ${color === 'purple' ? 'text-purple-600' : 'text-gray-800'}`}>
+        {displayValue}{unit ? <span className="text-gray-400 font-normal ml-0.5">{unit}</span> : null}
+      </span>
+    </div>
+  );
+};
+
 const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [], onAnnotationCreated }) => {
   const [localAnnotations, setLocalAnnotations] = useState(initialAnnotations);
   const [isAnnotating, setIsAnnotating] = useState(false);
@@ -97,17 +110,15 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
       // Передаем флаги isDeepScan, isBaked и выбранную модель в API
       const response = await getAnnotatedImage(messageId, isDeepScan, isBaked, selectedModel);
 
+      // Берём ВСЕ данные из ML-ответа (rich-метрики, RSA, вегетативные индексы и т.д.)
       const newAnn = {
-        id: response.data.id, image: response.data.annotated_image_url,
-        conf: response.data.conf, iou: response.data.iou, imgsz: response.data.imgsz,
-        segments: response.data.segments, leaves: response.data.leaves, stems: response.data.stems,
-        leaf_area_cm2: response.data.leaf_area_cm2, stem_length_mm: response.data.stem_length_mm,
-        is_deep_scan: response.data.is_deep_scan,
-        is_baked: response.data.is_baked,
-        model_name: response.data.model_name
+        ...response.data,
+        image: response.data.annotated_image_url || response.data.image,
       };
       setLocalAnnotations(prev => [newAnn, ...prev.filter(a => a.id !== newAnn.id)]);
       setActiveIndex(0);
+      // Автоматически открываем таб метрик — чтобы пользователь сразу видел результат
+      setActiveTab('metrics');
       // Синхронизируем с родительским состоянием, чтобы при переоткрытии модалки история сохранялась
       if (onAnnotationCreated) onAnnotationCreated(messageId, newAnn);
     } catch (err) {
@@ -203,8 +214,9 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
           </div>
 
           <div className="flex bg-white border-b border-gray-200">
-            <button onClick={() => setActiveTab('settings')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'settings' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>Управление ИИ</button>
-            <button onClick={() => setActiveTab('history')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>Версии ({localAnnotations.length})</button>
+            <button onClick={() => setActiveTab('settings')} className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors ${activeTab === 'settings' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>ИИ</button>
+            <button onClick={() => setActiveTab('history')} className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors ${activeTab === 'history' ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>Версии ({localAnnotations.length})</button>
+            <button onClick={() => setActiveTab('metrics')} className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors ${activeTab === 'metrics' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>Метрики</button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -233,6 +245,77 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+            )}
+
+            {/* ВКЛАДКА МЕТРИК */}
+            {activeTab === 'metrics' && (
+              <div className="p-4 space-y-4 text-xs">
+                {!activeAnn ? (
+                  <div className="text-center text-gray-400 mt-10 text-sm">Сначала сгенерируйте разметку</div>
+                ) : (
+                  <>
+                    {/* Общая информация */}
+                    <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+                      <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Общее</div>
+                      <MetricRow label="Культура" value={activeAnn.plant_type} />
+                      {activeAnn.is_deep_scan && <MetricRow label="Режим" value="DeepScan (TTA x8)" color="purple" />}
+                    </div>
+
+                    {/* Листья */}
+                    {(activeAnn.leaf_count > 0 || activeAnn.leaf_area_cm2 > 0) && (
+                      <div className="bg-white rounded-xl p-3 border border-green-100 shadow-sm">
+                        <div className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-2">Листья</div>
+                        <MetricRow label="Количество" value={activeAnn.leaf_count} />
+                        <MetricRow label="Площадь" value={activeAnn.leaf_area_cm2} unit="см2" />
+                        <MetricRow label="Периметр" value={activeAnn.leaf_perimeter_mm} unit="мм" />
+                        {activeAnn.leaf_exgreen !== 0 && <MetricRow label="ExGreen" value={activeAnn.leaf_exgreen} />}
+                        {activeAnn.leaf_vari !== 0 && <MetricRow label="VARI" value={activeAnn.leaf_vari} />}
+                      </div>
+                    )}
+
+                    {/* Стебель */}
+                    {(activeAnn.stem_count > 0 || activeAnn.stem_length_mm > 0) && (
+                      <div className="bg-white rounded-xl p-3 border border-blue-100 shadow-sm">
+                        <div className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Стебель</div>
+                        <MetricRow label="Количество" value={activeAnn.stem_count} />
+                        <MetricRow label="Длина" value={activeAnn.stem_length_mm} unit="мм" />
+                        <MetricRow label="Площадь" value={activeAnn.stem_area_mm2} unit="мм2" />
+                        {activeAnn.stem_base_width_mm > 0 && (
+                          <>
+                            <MetricRow label="Ширина основания" value={activeAnn.stem_base_width_mm} unit="мм" />
+                            <MetricRow label="Ширина кончика" value={activeAnn.stem_tip_width_mm} unit="мм" />
+                            <MetricRow label="Сужение" value={activeAnn.stem_taper_ratio} />
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Корневая система */}
+                    {activeAnn.total_root_len_mm > 0 && (
+                      <div className="bg-white rounded-xl p-3 border border-purple-100 shadow-sm">
+                        <div className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Корневая система (RSA)</div>
+                        <MetricRow label="Общая длина" value={activeAnn.total_root_len_mm} unit="мм" />
+                        <MetricRow label="Первичный корень" value={activeAnn.primary_root_len_mm} unit="мм" />
+                        <MetricRow label="Латеральные" value={activeAnn.lateral_root_len_mm} unit="мм" />
+                        <MetricRow label="Общий объём" value={activeAnn.total_root_vol_mm3} unit="мм3" />
+                        <MetricRow label="Поверхность" value={activeAnn.root_surface_area_mm2} unit="мм2" />
+                        <div className="my-1 border-t border-gray-100" />
+                        <MetricRow label="Кончики" value={activeAnn.root_tip_count} />
+                        <MetricRow label="Ветвления" value={activeAnn.root_fork_count} />
+                        <MetricRow label="Лат. корней" value={activeAnn.lateral_root_count} />
+                        <MetricRow label="Интенсив. ветвления" value={activeAnn.branching_intensity} unit="/мм" />
+                        <div className="my-1 border-t border-gray-100" />
+                        <MetricRow label="Ширина системы" value={activeAnn.root_system_width_mm} unit="мм" />
+                        <MetricRow label="Глубина системы" value={activeAnn.root_system_depth_mm} unit="мм" />
+                        <MetricRow label="Ш/Г соотношение" value={activeAnn.width_depth_ratio} />
+                        <MetricRow label="Плотность (hull)" value={activeAnn.root_density} />
+                        <MetricRow label="Фракт. размерность" value={activeAnn.root_fractal_dimension} />
+                        <MetricRow label="SRL (удельная)" value={activeAnn.specific_root_length} unit="мм/мм3" />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

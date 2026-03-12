@@ -206,13 +206,20 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
         ChatMessage.objects.create(session=session, role='user', image=analysis.original_image,
                                    content="Отправил(а) фото на анализ")
 
-        bot_reply = (
-            f"✅ Анализ завершен!\n\n"
-            f"🌿 Культура: {analysis.metrics.get('plant_type', 'Неизвестно')}\n"
-            f"📏 Площадь листьев: {analysis.metrics.get('leaf_area_cm2', 0)} см²\n"
-            f"📏 Длина корня: {analysis.metrics.get('root_length_mm', 0)} мм\n"
-            f"📏 Длина стебля: {analysis.metrics.get('stem_length_mm', 0)} мм"
-        )
+        m = analysis.metrics
+        lines = [f"✅ Анализ завершен!\n"]
+        lines.append(f"🌿 Культура: {m.get('plant_type', 'Неизвестно')}")
+        if m.get('leaf_count'):
+            lines.append(f"🍃 Листья: {m['leaf_count']} шт, площадь {m.get('leaf_area_cm2', 0)} см²")
+        if m.get('stem_length_mm'):
+            lines.append(f"🌱 Стебель: {m['stem_length_mm']} мм")
+        if m.get('total_root_len_mm'):
+            lines.append(f"🌿 Корни: {m['total_root_len_mm']} мм (первичный {m.get('primary_root_len_mm', 0)} мм)")
+            lines.append(f"   Кончиков: {m.get('root_tip_count', 0)}, ветвлений: {m.get('root_fork_count', 0)}")
+        if m.get('leaf_exgreen'):
+            lines.append(f"💚 Здоровье: ExGreen={m['leaf_exgreen']}, VARI={m.get('leaf_vari', 0)}")
+        lines.append("\n💬 Задайте вопрос агроному!")
+        bot_reply = "\n".join(lines)
 
         ChatMessage.objects.create(session=session, role='assistant', content=bot_reply)
 
