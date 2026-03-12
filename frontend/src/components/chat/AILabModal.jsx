@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getAnnotatedImage, getUserProfile, updateUserProfile, getAvailableModels } from '../../services/apiClient';
 import InteractivePlantCanvas from './InteractivePlantCanvas';
+import ErrorBoundary from '../ErrorBoundary';
 
 const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotations = [], onAnnotationCreated }) => {
   const [localAnnotations, setLocalAnnotations] = useState(initialAnnotations);
@@ -135,7 +136,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
         {/* ЛЕВАЯ ЧАСТЬ (КАНВАС) */}
         <div className="w-full md:w-[70%] bg-[#0f1115] flex items-center justify-center relative overflow-hidden">
           {activeAnn && !isAnnotating ? (
-            activeAnn.is_baked ? (
+            <ErrorBoundary fallbackMessage="Ошибка отображения разметки. Попробуйте сгенерировать заново.">
+            {activeAnn.is_baked ? (
               <div className="relative w-full h-full">
                 <InteractivePlantCanvas
                   imageUrl={activeAnn.image} segments={activeAnn.segments || []} leaves={activeAnn.leaves || []} stems={activeAnn.stems || []}
@@ -160,7 +162,8 @@ const AILabModal = ({ isOpen, onClose, messageId, initialImage, initialAnnotatio
                 externalScale={canvasView.scale} externalPosition={canvasView.position}
                 externalFilters={canvasView.imgFilters} onViewChange={setCanvasView}
               />
-            )
+            )}
+            </ErrorBoundary>
           ) : (
             <div className="relative w-full h-full flex items-center justify-center p-8">
               <img src={initialImage} alt="Original" className={`max-w-full max-h-full object-contain rounded-lg ${isAnnotating ? 'opacity-20 blur-sm' : 'opacity-80'}`} />

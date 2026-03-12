@@ -75,11 +75,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         ChatMessage.objects.create(session=session, role='user', content=message)
 
         metrics = session.analysis.metrics if session.analysis else {}
-        prompt = (
-            f"Ты — профессиональный агроном FloraAI. Данные растения: "
-            f"Культура: {metrics.get('plant_type', 'Неизвестно')}, "
-            f"Площадь листьев: {metrics.get('leaf_area_cm2', '0')} см2."
-        )
+        from .views import _build_agronomist_prompt
+        prompt = _build_agronomist_prompt(metrics)
 
         past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
         answer = get_agronomist_reply(prompt, past, message)

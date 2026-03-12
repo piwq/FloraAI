@@ -15,6 +15,39 @@ from .services.yandex_gpt_client import get_agronomist_reply
 User = get_user_model()
 
 
+def _build_agronomist_prompt(metrics: dict) -> str:
+    """Строит системный промпт для YandexGPT с полными метриками анализа."""
+    plant = metrics.get('plant_type', 'Неизвестно')
+    lines = [
+        "Ты — профессиональный агроном-консультант FloraAI.",
+        "Пользователь загрузил фото растения и система компьютерного зрения (YOLO + графовый анализ) вычислила метрики.",
+        "Используй эти данные, чтобы давать конкретные, количественные рекомендации.",
+        "",
+        f"Культура: {plant}",
+    ]
+    # Листья
+    if metrics.get('leaf_count'):
+        lines.append(f"Листья: {metrics['leaf_count']} шт, площадь {metrics.get('leaf_area_cm2', 0)} см², периметр {metrics.get('leaf_perimeter_mm', 0)} мм")
+    if metrics.get('leaf_exgreen'):
+        lines.append(f"Здоровье листьев: ExGreen={metrics['leaf_exgreen']}, VARI={metrics.get('leaf_vari', 0)}")
+    # Стебель
+    if metrics.get('stem_count'):
+        lines.append(f"Стебель: {metrics['stem_count']} шт, длина {metrics.get('stem_length_mm', 0)} мм, площадь {metrics.get('stem_area_mm2', 0)} мм²")
+        if metrics.get('stem_base_width_mm'):
+            lines.append(f"  толщина основания {metrics['stem_base_width_mm']} мм, кончик {metrics.get('stem_tip_width_mm', 0)} мм, сужение {metrics.get('stem_taper_ratio', 0)}")
+    # Корни
+    if metrics.get('total_root_len_mm'):
+        lines.append(f"Корни: общая длина {metrics['total_root_len_mm']} мм, объём {metrics.get('total_root_vol_mm3', 0)} мм³")
+        lines.append(f"  первичный корень {metrics.get('primary_root_len_mm', 0)} мм, латеральные {metrics.get('lateral_root_len_mm', 0)} мм")
+        lines.append(f"  кончиков {metrics.get('root_tip_count', 0)}, ветвлений {metrics.get('root_fork_count', 0)}, интенсивность ветвления {metrics.get('branching_intensity', 0)}")
+        lines.append(f"  ширина системы {metrics.get('root_system_width_mm', 0)} мм, глубина {metrics.get('root_system_depth_mm', 0)} мм")
+        lines.append(f"  плотность {metrics.get('root_density', 0)}, фрактальная размерность {metrics.get('root_fractal_dimension', 0)}")
+        lines.append(f"  удельная длина корня (SRL) {metrics.get('specific_root_length', 0)} мм/мм³")
+    lines.append("")
+    lines.append("Отвечай кратко, по делу, на русском. Если метрики указывают на проблемы — предупреди.")
+    return "\n".join(lines)
+
+
 # --- 1. АВТОРИЗАЦИЯ И ПРОФИЛЬ ---
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -154,7 +187,10 @@ class PlantAnalysisViewSet(viewsets.ModelViewSet):
 
         # --- ИСПОЛЬЗУЕМ ВЫНЕСЕННЫЙ СЕРВИС ML ---
         image.seek(0)
-        ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz, user=user)
+        try:
+            ml_data, _ = analyze_plant_image(image, user_conf, user_iou, user_imgsz, user=user)
+        except RuntimeError as e:
+            return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         image.seek(0)
 
         analysis = PlantAnalysis.objects.create(
@@ -194,7 +230,7 @@ class ChatAPIView(APIView):
     def get(self, request):
         if not request.user.is_authenticated:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
-        sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
+        sessions = ChatSession.objects.filter(user=request.user).select_related('analysis').order_by('-created_at')
         return Response([
             {
                 "id": s.id,
@@ -236,7 +272,7 @@ class ChatAPIView(APIView):
 
         # --- 3. ОБЩЕНИЕ С ИИ ---
         metrics = session.analysis.metrics if session.analysis else {}
-        prompt = f"Ты — агроном FloraAI. Данные: {metrics.get('plant_type', 'Неизвестно')}..."
+        prompt = _build_agronomist_prompt(metrics)
         past = list(reversed(ChatMessage.objects.filter(session=session).order_by('-created_at')[:10]))
         bot_reply_text = get_agronomist_reply(prompt, past, message)
         ChatMessage.objects.create(session=session, role='assistant', content=bot_reply_text)
@@ -293,6 +329,8 @@ class ChatDetailAPIView(APIView):
                         "is_deep_scan": a.is_deep_scan,
                         "is_baked": a.is_baked,
                         "model_name": a.model_name,
+                        # Rich-метрики (root RSA, fractal dimension, vegetation indices...)
+                        **a.metrics,
                     } for a in m.annotations.all()
                 ]
             } for m in messages
@@ -363,7 +401,7 @@ class BotHistoryView(APIView):
         if not user or not user.email:
             return Response({"history": []})
 
-        sessions = ChatSession.objects.filter(user=user).order_by('-created_at')[:5]
+        sessions = ChatSession.objects.filter(user=user).select_related('analysis').order_by('-created_at')[:5]
 
         history = []
         for s in sessions:
@@ -435,9 +473,12 @@ class AnnotateMessageView(APIView):
         model_name = request.data.get('model_name', None)
 
         # ПЕРЕДАЕМ ФЛАГИ deep_scan И bake_overlay В ML-КЛИЕНТ
-        annotated_file, segments, leaves, stems, extra_metrics = get_annotated_image(
-            message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, bake_overlay, user=user, model_name=model_name
-        )
+        try:
+            annotated_file, segments, leaves, stems, extra_metrics = get_annotated_image(
+                message.image, user_conf, user_iou, user_imgsz, c_leaf, c_root, c_stem, deep_scan, bake_overlay, user=user, model_name=model_name
+            )
+        except RuntimeError as e:
+            return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         if annotated_file:
             new_ann = MessageAnnotation.objects.create(
@@ -452,20 +493,23 @@ class AnnotateMessageView(APIView):
                 is_deep_scan=deep_scan,
                 is_baked=bake_overlay,
                 model_name=model_name or '',
+                metrics=extra_metrics,
             )
-            return Response({
+            response_data = {
                 "id": new_ann.id,
                 "annotated_image_url": request.build_absolute_uri(new_ann.image.url),
+                "image": request.build_absolute_uri(new_ann.image.url),
                 "conf": new_ann.conf, "iou": new_ann.iou, "imgsz": new_ann.imgsz,
                 "segments": new_ann.segments,
                 "leaves": new_ann.leaves,
                 "stems": new_ann.stems,
-                "leaf_area_cm2": extra_metrics.get('leaf_area_cm2', 0.0),
-                "stem_length_mm": extra_metrics.get('stem_length_mm', 0.0),
                 "is_deep_scan": deep_scan,
                 "is_baked": bake_overlay,
                 "model_name": model_name or '',
-            })
+            }
+            # Все rich-метрики из ML-ответа (leaf_area_cm2, stem_length_mm, root RSA и т.д.)
+            response_data.update(extra_metrics)
+            return Response(response_data)
 
         return Response({"error": "Не удалось сгенерировать разметку"}, status=status.HTTP_400_BAD_REQUEST)
 

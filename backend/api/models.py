@@ -98,6 +98,9 @@ class MessageAnnotation(models.Model):
     is_baked = models.BooleanField(default=False)
     model_name = models.CharField(max_length=100, blank=True, default='', verbose_name="Модель YOLO")
 
+    # ВСЕ метрики ML-сервиса (root RSA, fractal dimension, vegetation indices и т.д.)
+    metrics = models.JSONField(default=dict, blank=True)
+
     class Meta:
         # Сортируем так, чтобы новые разметки всегда были первыми
         ordering = ['-created_at']

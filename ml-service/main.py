@@ -131,7 +131,7 @@ def box_counting_dimension(binary_img):
         if count > 0:
             counts.append(count)
             valid_sizes.append(size)
-    if len(valid_sizes) < 3:
+    if len(valid_sizes) < 5:
         return 0.0
     coeffs = np.polyfit(np.log(valid_sizes), np.log(counts), 1)
     return float(round(-coeffs[0], 4))
@@ -454,7 +454,7 @@ def analyze_biomass(yolo_model, img, conf, iou, imgsz, draw_annotation=False, de
                 coords = skeleton_obj.path_coordinates(index).astype(int)
 
                 radii = [dist_transform[y, x] for y, x in coords]
-                true_rad_px = np.median(radii) if len(radii) >= MICRO_SEGMENT_PX else (np.mean(radii) if radii else 0)
+                true_rad_px = np.median(radii) if radii else 0
                 true_rad_mm = true_rad_px * mm_per_pixel
                 vol_mm3 = np.pi * (true_rad_mm ** 2) * dist_mm
 

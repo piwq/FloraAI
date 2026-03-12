@@ -33,8 +33,8 @@ import glob as glob_module
 import cv2
 import numpy as np
 
-# Импортируем функцию анализа из основного модуля
-from main import analyze_biomass
+# Импортируем функцию анализа и реестр моделей из основного модуля
+from main import analyze_biomass, registry
 
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
@@ -112,7 +112,9 @@ def process_image(image_path: str, args) -> dict:
         print(f"  [!] Не удалось прочитать: {image_path}")
         return None
 
+    yolo_model = registry.get_model()
     metrics, annotated = analyze_biomass(
+        yolo_model,
         img,
         conf=args.conf,
         iou=args.iou,
